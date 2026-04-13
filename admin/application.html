@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iRequestD — Application Review</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <h1><span>iRequest</span>D</h1>
+      <p>Secretary Portal</p>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="nav-item" href="dashboard.html">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" href="dashboard.html?status=pending">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Pending Review
+      </a>
+      <a class="nav-item active" href="#">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Application Detail
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <strong id="adminName">Loading…</strong>
+      <span id="adminRole"></span>
+      <br>
+      <a href="#" id="logoutBtn" style="color:rgba(255,255,255,.5); font-size:12px; margin-top:6px; display:inline-block;">Sign out</a>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <h2>Application Review</h2>
+      <div class="topbar-right">
+        <span id="statusBadge"></span>
+      </div>
+    </div>
+
+    <div class="content" id="mainContent">
+      <div class="loading">Loading application…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Image lightbox -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <span class="lightbox-close">&times;</span>
+  <img id="lightboxImg" src="" alt="">
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  requireAuth();
+
+  document.getElementById('adminName').textContent = getName();
+  document.getElementById('adminRole').textContent = getRole().charAt(0).toUpperCase() + getRole().slice(1);
+
+  document.getElementById('logoutBtn').addEventListener('click', (e) => {
+    e.preventDefault();
+    clearAuth();
+    window.location.href = '/admin/index.html';
+  });
+
+  const appId = new URLSearchParams(location.search).get('id');
+  if (!appId) window.location.href = '/admin/dashboard.html';
+
+  let currentApp = null;
+
+  function openLightbox(url) {
+    document.getElementById('lightboxImg').src = url;
+    document.getElementById('lightbox').classList.add('open');
+  }
+  function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open');
+  }
+
+  function docItem(label, filename) {
+    const url = uploadsUrl(filename);
+    if (!url) return `
+      <div class="doc-item">
+        <div class="doc-label">${label}</div>
+        <div class="doc-missing">Not submitted</div>
+      </div>`;
+    return `
+      <div class="doc-item">
+        <div class="doc-label">${label}</div>
+        <img class="doc-img" src="${url}" alt="${label}" onclick="openLightbox('${url}')" title="Click to enlarge">
+      </div>`;
+  }
+
+  function infoRow(label, value) {
+    return `
+      <div class="info-row">
+        <span class="info-label">${label}</span>
+        <span class="info-value">${value || '—'}</span>
+      </div>`;
+  }
+
+  async function loadApplication() {
+    const res = await apiFetch(`/applications/${appId}`);
+    if (!res?.ok) {
+      document.getElementById('mainContent').innerHTML = '<div class="empty-state"><p>Application not found.</p></div>';
+      return;
+    }
+
+    currentApp = res.data;
+    const a = currentApp;
+    const user = a.user || {};
+
+    document.getElementById('statusBadge').innerHTML = badgeHtml(a.status);
+    document.title = `Review — ${a.fullName || user.username}`;
+
+    const reviewedNote = a.reviewedAt
+      ? `<p style="font-size:12px;color:#6b7280;margin-top:8px;">Reviewed on ${formatDateTime(a.reviewedAt)}</p>`
+      : '';
+
+    const rejectionReasonRow = a.status === 'rejected' && a.rejectionReason
+      ? `<div style="background:#fee2e2;border-radius:8px;padding:12px 16px;margin-top:12px;font-size:13px;color:#991b1b;">
+           <strong>Rejection Reason:</strong> ${a.rejectionReason}
+         </div>`
+      : '';
+
+    const isReviewed = a.status === 'approved' || a.status === 'rejected';
+
+    document.getElementById('mainContent').innerHTML = `
+      <a class="back-btn" href="dashboard.html">
+        ← Back to Applications
+      </a>
+
+      <div class="page-title-row">
+        <h1 class="page-title" style="margin-bottom:0">${a.fullName || user.username || 'Unknown Applicant'}</h1>
+        ${badgeHtml(a.status)}
+      </div>
+
+      <div class="detail-grid">
+
+        <!-- Personal Info -->
+        <div class="detail-card">
+          <div class="detail-card-header">Personal Information</div>
+          <div class="detail-card-body">
+            ${infoRow('Full Name', a.fullName)}
+            ${infoRow('Age', a.age)}
+            ${infoRow('Gender', a.gender)}
+            ${infoRow('Address', a.address)}
+            ${infoRow('Years at Address', a.yearsAtAddress)}
+            ${infoRow("Mother's Name", a.motherName)}
+            ${infoRow("Father's Name", a.fatherName)}
+          </div>
+        </div>
+
+        <!-- Account Info -->
+        <div class="detail-card">
+          <div class="detail-card-header">Account Information</div>
+          <div class="detail-card-body">
+            ${infoRow('Username', user.username)}
+            ${infoRow('Email', user.email)}
+            ${infoRow('Contact No.', user.contactNumber)}
+            ${infoRow('Phone Verified', user.isVerified ? '✓ Yes' : '✗ No')}
+            ${infoRow('Registered', formatDate(user.createdAt))}
+            ${infoRow('Submitted', formatDateTime(a.submittedAt))}
+            ${infoRow('Current Step', a.currentStep)}
+          </div>
+        </div>
+
+        <!-- Education -->
+        <div class="detail-card">
+          <div class="detail-card-header">Educational Attainment</div>
+          <div class="detail-card-body">
+            ${infoRow('Level', a.educationLevel)}
+            ${infoRow('School / Institution', a.school)}
+            ${infoRow('Year Graduated', a.yearGraduated)}
+            ${infoRow('Course / Strand', a.course)}
+          </div>
+        </div>
+
+        <!-- ID Info -->
+        <div class="detail-card">
+          <div class="detail-card-header">ID Verification</div>
+          <div class="detail-card-body">
+            ${infoRow('ID Type', a.idType ? a.idType.charAt(0).toUpperCase() + a.idType.slice(1) : '—')}
+            ${infoRow('ID Name', a.idName)}
+          </div>
+        </div>
+
+      </div><!-- /detail-grid -->
+
+      <!-- Documents -->
+      <div class="detail-card" style="margin-top:20px">
+        <div class="detail-card-header">Submitted Documents</div>
+        <div class="detail-card-body">
+          <div class="doc-grid">
+            ${docItem('Front of ID', a.idFront)}
+            ${docItem('Back of ID', a.idBack)}
+            ${docItem('Face Photo', a.facePhoto)}
+            ${docItem('Education Certificate', a.educationCertificate)}
+          </div>
+        </div>
+      </div>
+
+      <!-- Review Panel -->
+      <div class="review-panel">
+        <h3>Review Decision</h3>
+
+        ${rejectionReasonRow}
+        ${reviewedNote}
+
+        ${isReviewed
+          ? `<p style="font-size:13px;color:#6b7280;margin-top:12px;">
+               This application has already been <strong>${a.status}</strong>.
+               You can still change the decision below.
+             </p>`
+          : ''}
+
+        <div class="review-actions" style="margin-top:16px">
+          <button class="btn btn-success" id="approveBtn" onclick="approve()">
+            ✓ Approve Application
+          </button>
+          <button class="btn btn-danger" id="rejectToggleBtn" onclick="toggleRejectForm()">
+            ✗ Reject Application
+          </button>
+        </div>
+
+        <div id="rejectForm" style="display:none; margin-top:12px">
+          <textarea id="rejectReason" placeholder="Enter reason for rejection (optional)…">${a.rejectionReason || ''}</textarea>
+          <div style="display:flex; gap:10px; margin-top:10px">
+            <button class="btn btn-danger" onclick="reject()">Confirm Rejection</button>
+            <button class="btn btn-outline" onclick="toggleRejectForm()">Cancel</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function toggleRejectForm() {
+    const form = document.getElementById('rejectForm');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  }
+
+  async function approve() {
+    const btn = document.getElementById('approveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Processing…';
+
+    const res = await apiFetch(`/applications/${appId}/approve`, { method: 'PUT' });
+    if (res?.ok) {
+      showToast('Application approved!', 'success');
+      setTimeout(loadApplication, 600);
+    } else {
+      showToast(res?.data?.message || 'Failed to approve', 'error');
+      btn.disabled = false;
+      btn.textContent = '✓ Approve Application';
+    }
+  }
+
+  async function reject() {
+    const reason = document.getElementById('rejectReason')?.value?.trim() || '';
+    const res = await apiFetch(`/applications/${appId}/reject`, {
+      method: 'PUT',
+      body: JSON.stringify({ reason }),
+    });
+    if (res?.ok) {
+      showToast('Application rejected.', 'error');
+      setTimeout(loadApplication, 600);
+    } else {
+      showToast(res?.data?.message || 'Failed to reject', 'error');
+    }
+  }
+
+  loadApplication();
+</script>
+</body>
+</html>
