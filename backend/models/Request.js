@@ -32,6 +32,13 @@ const requestSchema = new mongoose.Schema(
       enum: ['Pending', 'Processing', 'Ready', 'Rejected'],
       default: 'Pending',
     },
+    paymentStatus: {
+      type: String,
+      enum: ['unpaid', 'paid'],
+      default: 'unpaid',
+    },
+    paymentLinkId: { type: String, default: null },
+    amountPaid: { type: Number, default: 0 }, // in centavos
   },
   { timestamps: true }
 );

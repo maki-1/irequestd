@@ -1,13 +1,16 @@
 import 'dart:typed_data';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import 'step_progress_bar.dart';
 import 'verification_waiting_screen.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Public entry point
+// ─────────────────────────────────────────────────────────────────────────────
+
 class IdVerificationScreen extends StatefulWidget {
   final String? facePhotoPath;
-
   const IdVerificationScreen({super.key, this.facePhotoPath});
 
   @override
@@ -16,9 +19,9 @@ class IdVerificationScreen extends StatefulWidget {
 
 class _IdVerificationScreenState extends State<IdVerificationScreen> {
   static const Color _green = Color(0xFF1A6B1A);
-  static const Color _limeGreen = Color(0xFF4CFF4C);
+  static const Color _lime = Color(0xFF4CFF4C);
 
-  String? _idType; // 'primary' | 'secondary'
+  String? _idType;
   String? _idName;
   XFile? _idFront;
   XFile? _idBack;
@@ -49,79 +52,35 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
   List<String> get _idOptions =>
       _idType == 'primary' ? _primaryIds : _secondaryIds;
 
-  Future<void> _pickImage(bool isFront) async {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Text(isFront ? 'Upload Front of ID' : 'Upload Back of ID',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF1A6B1A)),
-              title: const Text('Take Photo'),
-              onTap: () async {
-                Navigator.pop(context);
-                final f = await ImagePicker()
-                    .pickImage(source: ImageSource.camera, imageQuality: 90);
-                if (f != null) _checkAndSetIdImage(f, isFront);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF1A6B1A)),
-              title: const Text('Choose from Gallery'),
-              onTap: () async {
-                Navigator.pop(context);
-                final f = await ImagePicker()
-                    .pickImage(source: ImageSource.gallery, imageQuality: 90);
-                if (f != null) _checkAndSetIdImage(f, isFront);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+  bool get _canSubmit =>
+      _idType != null && _idName != null && _idFront != null && _idBack != null;
+
+  // Open the live camera scanner and wait for a captured photo
+  Future<void> _scanId({required bool isFront}) async {
+    final result = await Navigator.push<XFile?>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _IdCameraPage(
+          label: isFront ? 'Front of ID' : 'Back of ID',
         ),
+        fullscreenDialog: true,
       ),
     );
-  }
-
-  Future<void> _checkAndSetIdImage(XFile file, bool isFront) async {
-    final bytes = await file.readAsBytes();
-    if (bytes.length > 5 * 1024 * 1024) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Image too large (max 5MB)'),
-          backgroundColor: Colors.redAccent,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-      return;
-    }
+    if (result == null) return;
+    final bytes = await result.readAsBytes();
     setState(() {
       if (isFront) {
-        _idFront = file;
+        _idFront = result;
         _idFrontBytes = bytes;
       } else {
-        _idBack = file;
+        _idBack = result;
         _idBackBytes = bytes;
       }
     });
   }
 
-  bool get _canSubmit =>
-      _idType != null && _idName != null && _idFront != null && _idBack != null;
-
   Future<void> _handleSubmit() async {
-    if (!_canSubmit) {
-      _showError('Please complete all required fields');
-      return;
-    }
-
+    if (!_canSubmit) return;
     setState(() => _isLoading = true);
     try {
       final result = await ApiService.submitStep3(
@@ -131,9 +90,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
         idFrontPath: _idFront!.path,
         idBackPath: _idBack!.path,
       );
-
       if (!mounted) return;
-
       if (result['statusCode'] == 200) {
         Navigator.pushAndRemoveUntil(
           context,
@@ -178,12 +135,12 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
               const StepProgressBar(currentStep: 3),
               const SizedBox(height: 28),
 
-              // ID Type — radio buttons
+              // ── ID Type ──────────────────────────────────────────────────
               _label('Select ID Type *'),
               _buildIdTypeRadio(),
               const SizedBox(height: 16),
 
-              // ID Name dropdown (only if type selected)
+              // ── ID Name ──────────────────────────────────────────────────
               _label('Choose ID *'),
               _idType == null
                   ? _disabledDropdown('Select ID type first')
@@ -193,19 +150,29 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                       items: _idOptions,
                       onChanged: (v) => setState(() => _idName = v),
                     ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
 
-              // ID Front
+              // ── Front ID ─────────────────────────────────────────────────
               _label('Front of ID *'),
-              _buildImageUpload(isFront: true),
+              _buildScanTile(
+                isFront: true,
+                bytes: _idFrontBytes,
+                onScan: () => _scanId(isFront: true),
+                onClear: () => setState(() { _idFront = null; _idFrontBytes = null; }),
+              ),
               const SizedBox(height: 14),
 
-              // ID Back
+              // ── Back ID ──────────────────────────────────────────────────
               _label('Back of ID *'),
-              _buildImageUpload(isFront: false),
-              const SizedBox(height: 12),
+              _buildScanTile(
+                isFront: false,
+                bytes: _idBackBytes,
+                onScan: () => _scanId(isFront: false),
+                onClear: () => setState(() { _idBack = null; _idBackBytes = null; }),
+              ),
+              const SizedBox(height: 16),
 
-              // Image quality note
+              // Image requirements
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -216,14 +183,17 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                 child: const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Image Requirements:',
+                    Text('Tips for a clear scan:',
                         style: TextStyle(
                             color: Colors.white70,
                             fontSize: 12,
                             fontWeight: FontWeight.bold)),
                     SizedBox(height: 4),
                     Text(
-                      '• Clear and legible text\n• No glare or shadows\n• All 4 corners visible\n• Good lighting',
+                      '• Place ID on a dark flat surface\n'
+                      '• All 4 corners must be visible\n'
+                      '• Avoid glare — no flash\n'
+                      '• Text must be legible',
                       style: TextStyle(color: Colors.white54, fontSize: 11, height: 1.6),
                     ),
                   ],
@@ -231,13 +201,14 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
               ),
               const SizedBox(height: 28),
 
+              // Submit
               SizedBox(
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton(
                   onPressed: (_canSubmit && !_isLoading) ? _handleSubmit : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _canSubmit ? _limeGreen : Colors.white24,
+                    backgroundColor: _canSubmit ? _lime : Colors.white24,
                     foregroundColor: Colors.black,
                     disabledBackgroundColor: Colors.white24,
                     disabledForegroundColor: Colors.white38,
@@ -247,12 +218,12 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                   ),
                   child: _isLoading
                       ? const SizedBox(
-                          width: 22, height: 22,
+                          width: 22,
+                          height: 22,
                           child: CircularProgressIndicator(
                               strokeWidth: 2.5, color: Colors.black54))
                       : const Text('Submit for Verification',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w700)),
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 ),
               ),
               const SizedBox(height: 24),
@@ -263,35 +234,106 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
     );
   }
 
-  Widget _buildIdTypeRadio() {
-    return Column(
-      children: [
-        _radioTile(
-          title: 'Primary ID',
-          subtitle: '1 required',
-          value: 'primary',
+  // ── Scan tile ────────────────────────────────────────────────────────────────
+
+  Widget _buildScanTile({
+    required bool isFront,
+    required Uint8List? bytes,
+    required VoidCallback onScan,
+    required VoidCallback onClear,
+  }) {
+    if (bytes != null) {
+      return Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.memory(
+              bytes,
+              width: double.infinity,
+              height: 160,
+              fit: BoxFit.cover,
+            ),
+          ),
+          // Captured badge
+          Positioned(
+            top: 8,
+            left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.black60,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Color(0xFF4CFF4C), size: 14),
+                  SizedBox(width: 5),
+                  Text('Captured', style: TextStyle(color: Colors.white, fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+          // Re-scan button
+          Positioned(
+            top: 8,
+            right: 8,
+            child: GestureDetector(
+              onTap: onScan,
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: const BoxDecoration(
+                    color: Colors.black54, shape: BoxShape.circle),
+                child: const Icon(Icons.replay_rounded, color: Colors.white, size: 16),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return GestureDetector(
+      onTap: onScan,
+      child: Container(
+        width: double.infinity,
+        height: 130,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white30, style: BorderStyle.solid, width: 1.5),
         ),
-        const SizedBox(height: 8),
-        _radioTile(
-          title: 'Secondary ID',
-          subtitle: '2 required',
-          value: 'secondary',
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.credit_card_rounded, color: Colors.white54, size: 36),
+            const SizedBox(height: 10),
+            const Text('Tap to scan',
+                style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            Text(
+              isFront ? 'Hold ID front-facing to camera' : 'Flip ID and scan the back',
+              style: const TextStyle(color: Colors.white38, fontSize: 11),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
-  Widget _radioTile({
-    required String title,
-    required String subtitle,
-    required String value,
-  }) {
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  Widget _buildIdTypeRadio() {
+    return Column(children: [
+      _radioTile(title: 'Primary ID', subtitle: '1 required', value: 'primary'),
+      const SizedBox(height: 8),
+      _radioTile(title: 'Secondary ID', subtitle: '2 required', value: 'secondary'),
+    ]);
+  }
+
+  Widget _radioTile({required String title, required String subtitle, required String value}) {
     final isSelected = _idType == value;
     return GestureDetector(
-      onTap: () => setState(() {
-        _idType = value;
-        _idName = null; // reset when type changes
-      }),
+      onTap: () => setState(() { _idType = value; _idName = null; }),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
@@ -300,85 +342,24 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
           border: Border.all(
               color: isSelected ? Colors.white : Colors.white24, width: 1.5),
         ),
-        child: Row(
-          children: [
-            Icon(
-              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: isSelected ? _green : Colors.white54,
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: TextStyle(
-                        color: isSelected ? _green : Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14)),
-                Text(subtitle,
-                    style: TextStyle(
-                        color: isSelected ? Colors.black45 : Colors.white54,
-                        fontSize: 11)),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildImageUpload({required bool isFront}) {
-    final file = isFront ? _idFront : _idBack;
-    final bytes = isFront ? _idFrontBytes : _idBackBytes;
-    return GestureDetector(
-      onTap: () => _pickImage(isFront),
-      child: Container(
-        width: double.infinity,
-        height: 140,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-              color: file != null ? Colors.greenAccent.withValues(alpha: 0.5) : Colors.white30,
-              width: 1.5),
-        ),
-        child: file == null
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.camera_alt_outlined,
-                      color: Colors.white54, size: 32),
-                  const SizedBox(height: 8),
-                  const Text('Tap to upload',
-                      style: TextStyle(color: Colors.white70, fontSize: 13)),
-                  const Text('JPG, PNG  •  Max 5MB',
-                      style: TextStyle(color: Colors.white38, fontSize: 11)),
-                ],
-              )
-            : Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: Image.memory(bytes!, fit: BoxFit.cover),
-                  ),
-                  Positioned(
-                    top: 6, right: 6,
-                    child: GestureDetector(
-                      onTap: () => setState(() {
-                        if (isFront) _idFront = null;
-                        else _idBack = null;
-                      }),
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                            color: Colors.black54, shape: BoxShape.circle),
-                        child: const Icon(Icons.close, color: Colors.white, size: 14),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+        child: Row(children: [
+          Icon(
+            isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+            color: isSelected ? const Color(0xFF1A6B1A) : Colors.white54,
+          ),
+          const SizedBox(width: 12),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title,
+                style: TextStyle(
+                    color: isSelected ? const Color(0xFF1A6B1A) : Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14)),
+            Text(subtitle,
+                style: TextStyle(
+                    color: isSelected ? Colors.black45 : Colors.white54,
+                    fontSize: 11)),
+          ]),
+        ]),
       ),
     );
   }
@@ -401,7 +382,8 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
       onChanged: onChanged,
       dropdownColor: Colors.white,
       isExpanded: true,
-      style: const TextStyle(color: _green, fontSize: 14, fontWeight: FontWeight.w600),
+      style: const TextStyle(
+          color: Color(0xFF1A6B1A), fontSize: 14, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(color: Color(0xFF7BAE7B), fontSize: 14),
@@ -413,7 +395,8 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
       ),
       items: items
           .map((e) => DropdownMenuItem(
-              value: e, child: Text(e, style: const TextStyle(color: _green))))
+              value: e,
+              child: Text(e, style: const TextStyle(color: Color(0xFF1A6B1A)))))
           .toList(),
     );
   }
@@ -426,8 +409,304 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
         color: Colors.white.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(28),
       ),
-      child: Text(hint,
-          style: const TextStyle(color: Colors.white38, fontSize: 14)),
+      child: Text(hint, style: const TextStyle(color: Colors.white38, fontSize: 14)),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live camera scanner page  (full-screen, GCash-style card frame)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _IdCameraPage extends StatefulWidget {
+  final String label;
+  const _IdCameraPage({required this.label});
+
+  @override
+  State<_IdCameraPage> createState() => _IdCameraPageState();
+}
+
+class _IdCameraPageState extends State<_IdCameraPage>
+    with SingleTickerProviderStateMixin {
+  CameraController? _ctrl;
+  bool _cameraReady = false;
+  bool _captured = false;
+  XFile? _photo;
+  Uint8List? _photoBytes;
+
+  late AnimationController _cornerAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _cornerAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _initCamera();
+  }
+
+  Future<void> _initCamera() async {
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) return;
+      final back = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+      _ctrl = CameraController(back, ResolutionPreset.high, enableAudio: false);
+      await _ctrl!.initialize();
+      if (mounted) setState(() => _cameraReady = true);
+    } catch (_) {}
+  }
+
+  Future<void> _capture() async {
+    if (!_cameraReady || _captured) return;
+    try {
+      final photo = await _ctrl!.takePicture();
+      final bytes = await photo.readAsBytes();
+      setState(() {
+        _photo = photo;
+        _photoBytes = bytes;
+        _captured = true;
+      });
+    } catch (_) {}
+  }
+
+  void _retake() {
+    setState(() {
+      _photo = null;
+      _photoBytes = null;
+      _captured = false;
+    });
+  }
+
+  void _usePhoto() {
+    Navigator.pop(context, _photo);
+  }
+
+  @override
+  void dispose() {
+    _cornerAnim.dispose();
+    _ctrl?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Camera / preview
+          if (_cameraReady && !_captured)
+            SizedBox.expand(child: CameraPreview(_ctrl!)),
+          if (_captured && _photoBytes != null)
+            Image.memory(_photoBytes!, fit: BoxFit.cover, width: size.width, height: size.height),
+
+          // Card frame overlay
+          if (!_captured)
+            AnimatedBuilder(
+              animation: _cornerAnim,
+              builder: (_, __) => CustomPaint(
+                size: size,
+                painter: _CardFramePainter(cornerGlow: _cornerAnim.value),
+              ),
+            )
+          else
+            CustomPaint(
+              size: size,
+              painter: _CardFramePainter(cornerGlow: 1.0, captured: true),
+            ),
+
+          // UI chrome
+          SafeArea(
+            child: Column(
+              children: [
+                // Top bar
+                Row(children: [
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                  const Spacer(),
+                  Text(
+                    widget.label,
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const Spacer(),
+                  const SizedBox(width: 48),
+                ]),
+
+                const Spacer(),
+
+                // Instruction
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.black60,
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  child: Text(
+                    _captured
+                        ? 'Check that all details are clear'
+                        : 'Fit your ID within the frame',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                  ),
+                ),
+
+                const SizedBox(height: 28),
+
+                // Buttons
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: _captured
+                      ? Row(children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _retake,
+                              icon: const Icon(Icons.replay_rounded,
+                                  color: Colors.white70, size: 18),
+                              label: const Text('Retake',
+                                  style: TextStyle(color: Colors.white70)),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.white30),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(32)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 2,
+                            child: ElevatedButton(
+                              onPressed: _usePhoto,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF4CFF4C),
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(32)),
+                              ),
+                              child: const Text('Use This Photo',
+                                  style: TextStyle(
+                                      fontSize: 15, fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ])
+                      : SizedBox(
+                          width: double.infinity,
+                          height: 64,
+                          child: GestureDetector(
+                            onTap: _cameraReady ? _capture : null,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 4),
+                              ),
+                              child: Center(
+                                child: Container(
+                                  width: 52,
+                                  height: 52,
+                                  decoration: const BoxDecoration(
+                                      color: Colors.white, shape: BoxShape.circle),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                ),
+
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Card frame painter — dark overlay + rounded rect cutout + corner markers
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CardFramePainter extends CustomPainter {
+  final double cornerGlow; // 0..1
+  final bool captured;
+
+  const _CardFramePainter({required this.cornerGlow, this.captured = false});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const cardAspect = 1.586; // standard ID card ratio
+    final cardW = size.width * 0.86;
+    final cardH = cardW / cardAspect;
+    final cardRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+          center: Offset(size.width / 2, size.height * 0.44),
+          width: cardW,
+          height: cardH),
+      const Radius.circular(14),
+    );
+
+    // Dark overlay with card hole
+    final path = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..addRRect(cardRect)
+      ..fillType = PathFillType.evenOdd;
+    canvas.drawPath(path, Paint()..color = Colors.black.withValues(alpha: 0.65));
+
+    // Card border
+    final borderColor = captured
+        ? const Color(0xFF4CFF4C)
+        : Color.lerp(Colors.white54, Colors.white, cornerGlow)!;
+    canvas.drawRRect(
+      cardRect,
+      Paint()
+        ..color = borderColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+
+    // Corner markers
+    final r = cardRect.outerRect;
+    final markerColor = captured
+        ? const Color(0xFF4CFF4C)
+        : Color.lerp(Colors.white70, Colors.white, cornerGlow)!;
+    _drawCorners(canvas, r, markerColor);
+  }
+
+  void _drawCorners(Canvas canvas, Rect r, Color color) {
+    const len = 22.0;
+    const thick = 3.5;
+    final p = Paint()
+      ..color = color
+      ..strokeWidth = thick
+      ..strokeCap = StrokeCap.round;
+
+    // Top-left
+    canvas.drawLine(r.topLeft, r.topLeft.translate(len, 0), p);
+    canvas.drawLine(r.topLeft, r.topLeft.translate(0, len), p);
+    // Top-right
+    canvas.drawLine(r.topRight, r.topRight.translate(-len, 0), p);
+    canvas.drawLine(r.topRight, r.topRight.translate(0, len), p);
+    // Bottom-left
+    canvas.drawLine(r.bottomLeft, r.bottomLeft.translate(len, 0), p);
+    canvas.drawLine(r.bottomLeft, r.bottomLeft.translate(0, -len), p);
+    // Bottom-right
+    canvas.drawLine(r.bottomRight, r.bottomRight.translate(-len, 0), p);
+    canvas.drawLine(r.bottomRight, r.bottomRight.translate(0, -len), p);
+  }
+
+  @override
+  bool shouldRepaint(_CardFramePainter old) =>
+      old.cornerGlow != cornerGlow || old.captured != captured;
 }

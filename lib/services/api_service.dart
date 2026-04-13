@@ -321,6 +321,41 @@ class ApiService {
     );
   }
 
+  // ── Payment endpoints ─────────────────────────────────────────────────────
+
+  /// Creates a PayMongo payment link + a pending request record.
+  /// Returns { checkoutUrl, linkId, requestId } on success.
+  static Future<Map<String, dynamic>> createPaymentLink({
+    required String documentType,
+    required String purpose,
+    String additionalDetails = '',
+    required String deliveryMethod,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/payment/create-link'),
+      headers: await _authHeaders(),
+      body: jsonEncode({
+        'documentType': documentType,
+        'purpose': purpose,
+        'additionalDetails': additionalDetails,
+        'deliveryMethod': deliveryMethod,
+      }),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return {'statusCode': res.statusCode, ...body};
+  }
+
+  /// Polls whether a payment link has been paid.
+  /// Returns { paid: bool, requestId: String }
+  static Future<Map<String, dynamic>> checkPaymentStatus(String linkId) async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/payment/status/$linkId'),
+      headers: await _authHeaders(),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return {'statusCode': res.statusCode, ...body};
+  }
+
   // ── Profile endpoints ─────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> uploadAvatar(

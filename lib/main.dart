@@ -4,17 +4,53 @@ import 'login_screen.dart';
 import 'signup_screen.dart';
 import 'dashboard_screen.dart';
 import 'settings_screen.dart';
+import 'services/api_service.dart';
+import 'verification/demographic_screen.dart';
+import 'verification/education_screen.dart';
+import 'verification/face_recognition_screen.dart';
+import 'verification/verification_waiting_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
   final seenOnboarding = prefs.getBool('seen_onboarding') ?? false;
-  runApp(MyApp(showOnboarding: !seenOnboarding));
+
+  // Check for existing session
+  final token = await ApiService.getToken();
+  Widget homeScreen;
+
+  if (!seenOnboarding) {
+    homeScreen = const OnboardingScreen();
+  } else if (token != null) {
+    // Resume session — fetch latest user state from server
+    final user = await ApiService.getMe();
+    if (user != null) {
+      final status = user['accountStatus'] as String?;
+      final step = user['verificationStep'] as int? ?? 1;
+      homeScreen = _resolveHome(status, step);
+    } else {
+      // Token invalid/expired — clear and show login
+      await ApiService.clearSession();
+      homeScreen = const LoginScreen();
+    }
+  } else {
+    homeScreen = const LoginScreen();
+  }
+
+  runApp(MyApp(homeScreen: homeScreen));
+}
+
+Widget _resolveHome(String? status, int step) {
+  if (status == 'approved') return const DashboardScreen();
+  if (status == 'pending') return const VerificationWaitingScreen();
+  if (step >= 3) return const FaceRecognitionScreen();
+  if (step >= 2) return const EducationScreen();
+  return const DemographicScreen();
 }
 
 class MyApp extends StatelessWidget {
-  final bool showOnboarding;
-  const MyApp({super.key, required this.showOnboarding});
+  final Widget homeScreen;
+  const MyApp({super.key, required this.homeScreen});
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +60,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1A6B1A)),
       ),
-      home: showOnboarding ? const OnboardingScreen() : const LoginScreen(),
+      home: homeScreen,
       routes: {
         '/dashboard': (_) => const DashboardScreen(),
         '/settings': (_) => const SettingsScreen(),
