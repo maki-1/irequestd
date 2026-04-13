@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
-  static const String _baseUrl = 'http://localhost:5000/api';
+  static const String _baseUrl = 'https://irequestd.onrender.com/api';
 
   // ── Token helpers ────────────────────────────────────────────────────────────
 
@@ -360,10 +360,8 @@ class ApiService {
     return {'statusCode': res.statusCode, ...body};
   }
 
-  static String avatarUrl(String filename) {
-    if (filename.isEmpty) return '';
-    // _baseUrl ends in /api — strip to get server root
-    final root = _baseUrl.replaceAll(RegExp(r'/api$'), '');
-    return '$root/uploads/$filename';
+  static String avatarUrl(String url) {
+    // Avatar is now a full Cloudinary URL stored directly
+    return url;
   }
 }
