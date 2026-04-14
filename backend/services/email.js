@@ -1,14 +1,20 @@
 const nodemailer = require('nodemailer');
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS, // Gmail App Password
-  },
-});
+function createTransporter() {
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // SSL
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+}
 
 async function sendOtpEmail(to, otp, type = 'reset') {
+  const transporter = createTransporter();
+
   const subject =
     type === 'reset'
       ? 'iRequest Dologon — Password Reset OTP'
@@ -19,7 +25,7 @@ async function sendOtpEmail(to, otp, type = 'reset') {
       ? `Your password reset code is: <b>${otp}</b><br>Valid for 10 minutes. Ignore if you did not request this.`
       : `Your verification code is: <b>${otp}</b><br>Valid for 10 minutes. Do not share this code.`;
 
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from: `"iRequest Dologon" <${process.env.EMAIL_USER}>`,
     to,
     subject,
@@ -34,6 +40,9 @@ async function sendOtpEmail(to, otp, type = 'reset') {
       </div>
     `,
   });
+
+  console.log(`[Email] Message sent: ${info.messageId}`);
+  return info;
 }
 
 module.exports = { sendOtpEmail };
