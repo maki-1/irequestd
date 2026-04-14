@@ -6,6 +6,7 @@ const User = require('../models/User');
 const Otp = require('../models/Otp');
 const VerificationProfile = require('../models/VerificationProfile');
 const { sendOtp, sendPasswordResetOtp } = require('../services/sms');
+const { sendOtpEmail } = require('../services/email');
 const { uploadAvatar } = require('../config/cloudinary');
 
 function generateToken(user) {
@@ -383,10 +384,37 @@ router.post('/forgot-password', async (req, res) => {
       return res.json({ message: 'If that account exists, an OTP has been sent.' });
     }
 
-    await createAndSendOtp(user._id, user.contactNumber, 'reset');
+    const isEmail = trimmed.includes('@');
+
+    // Generate and save OTP
+    await Otp.deleteMany({ userId: user._id, type: 'reset', used: false });
+    const code = generateOtpCode();
+    const hashed = await bcrypt.hash(code, 10);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await Otp.create({ userId: user._id, code: hashed, type: 'reset', expiresAt });
+
+    if (isEmail) {
+      try {
+        await sendOtpEmail(user.email, code, 'reset');
+        console.log(`[OTP] Reset OTP sent to email: ${user.email}`);
+      } catch (emailErr) {
+        console.error('[OTP] Email sending failed:', emailErr.message);
+        console.log(`[OTP] Code for ${user.email}: ${code}`);
+      }
+    } else {
+      try {
+        await sendPasswordResetOtp(user.contactNumber, code);
+        console.log(`[OTP] Reset OTP sent via SMS to: ${user.contactNumber}`);
+      } catch (smsErr) {
+        console.error('[OTP] SMS sending failed:', smsErr?.response?.data || smsErr.message);
+        console.log(`[OTP] Code for ${user.contactNumber}: ${code}`);
+      }
+    }
 
     res.json({
-      message: 'OTP sent to your registered contact number',
+      message: isEmail
+          ? 'OTP sent to your email address'
+          : 'OTP sent to your registered contact number',
       userId: user._id,
     });
   } catch (err) {
