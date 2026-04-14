@@ -169,20 +169,13 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             children: [
               const SizedBox(height: 48),
-              // Avatar image
+              // App logo
               Center(
-                child: Container(
-                  width: 140,
-                  height: 140,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0xFFF5E6D3),
-                  ),
-                  clipBehavior: Clip.hardEdge,
-                  child: Image.network(
-                    'https://res.cloudinary.com/dvw7ky1xq/image/upload/irequestd/assets/loginph.png',
-                    fit: BoxFit.cover,
-                  ),
+                child: Image.network(
+                  'https://res.cloudinary.com/dvw7ky1xq/image/upload/v1776177600/Irequest_Logo_kbbr2b.jpg',
+                  width: 160,
+                  height: 160,
+                  fit: BoxFit.contain,
                 ),
               ),
               const SizedBox(height: 28),

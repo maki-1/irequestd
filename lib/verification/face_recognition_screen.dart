@@ -208,7 +208,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                     margin: const EdgeInsets.symmetric(horizontal: 32),
                     padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Colors.black60,
+                      color: Colors.black54,
                       borderRadius: BorderRadius.circular(30),
                     ),
                     child: Text(

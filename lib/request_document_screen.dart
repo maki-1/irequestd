@@ -169,7 +169,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.black08),
+                border: Border.all(color: Colors.black12),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,

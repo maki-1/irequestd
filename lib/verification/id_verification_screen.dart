@@ -261,7 +261,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: Colors.black60,
+                color: Colors.black54,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Row(
@@ -549,7 +549,7 @@ class _IdCameraPageState extends State<_IdCameraPage>
                   margin: const EdgeInsets.symmetric(horizontal: 24),
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   decoration: BoxDecoration(
-                    color: Colors.black60,
+                    color: Colors.black54,
                     borderRadius: BorderRadius.circular(30),
                   ),
                   child: Text(
