@@ -29,6 +29,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   static const Color _limeGreen = Color(0xFF4CFF4C);
 
   String _username = '';
+  String _firstName = '';
   String _avatarFilename = '';
   String _accountStatus = 'draft';   // draft | pending | approved | rejected
   bool _isVerified = false;
@@ -55,6 +56,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         final full = user?['username'] as String? ?? '';
         _username = full.split(' ').first;
+        final fullName = user?['fullName'] as String? ?? '';
+        _firstName = fullName.isNotEmpty
+            ? fullName.trim().split(' ').first
+            : _username;
         _avatarFilename = user?['avatar'] as String? ?? '';
         _accountStatus = user?['accountStatus'] as String? ?? 'draft';
         _isVerified = user?['isVerified'] as bool? ?? false;
@@ -116,12 +121,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    const Text('Welcome back',
+                                    const Text('Welcome back,',
                                         style: TextStyle(
                                             color: Colors.white70,
                                             fontSize: 13)),
                                     Text(
-                                      _username.isEmpty ? '...' : _username,
+                                      _firstName.isEmpty ? '...' : _firstName,
                                       style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 22,

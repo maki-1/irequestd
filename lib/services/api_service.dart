@@ -176,12 +176,12 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> forgotPassword({
-    required String username,
+    required String identifier,
   }) async {
     final res = await http.post(
       Uri.parse('$_baseUrl/auth/forgot-password'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username}),
+      body: jsonEncode({'identifier': identifier}),
     );
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return {'statusCode': res.statusCode, ...body};

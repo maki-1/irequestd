@@ -381,11 +381,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           children: [
             _titleIRequest(),
             const SizedBox(height: 30),
-            Image.network(
-              'https://res.cloudinary.com/dvw7ky1xq/image/upload/v1776177600/Irequest_Logo_kbbr2b.jpg',
-              width: 260,
-              height: 240,
-              fit: BoxFit.contain,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: Image.network(
+                'https://res.cloudinary.com/dvw7ky1xq/image/upload/v1776177600/Irequest_Logo_kbbr2b.jpg',
+                width: 260,
+                height: 240,
+                fit: BoxFit.contain,
+              ),
             ),
             const SizedBox(height: 30),
             const Text(

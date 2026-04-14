@@ -14,36 +14,34 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   static const Color _gold = Color(0xFFFFD700);
   static const Color _limeGreen = Color(0xFF4CFF4C);
 
-  final _usernameController = TextEditingController();
+  final _identifierController = TextEditingController();
   bool _isLoading = false;
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _identifierController.dispose();
     super.dispose();
   }
 
   Future<void> _handleSubmit() async {
-    final username = _usernameController.text.trim();
-    if (username.isEmpty) {
-      _showError('Please enter your username');
+    final identifier = _identifierController.text.trim();
+    if (identifier.isEmpty) {
+      _showError('Please enter your email or contact number');
       return;
     }
 
     setState(() => _isLoading = true);
     try {
-      final result = await ApiService.forgotPassword(username: username);
+      final result = await ApiService.forgotPassword(identifier: identifier);
 
       if (!mounted) return;
 
-      // Always show success message (server doesn't reveal if user exists)
       if (result['statusCode'] == 200) {
         final userId = result['userId'] as String?;
         if (userId == null) {
-          // Username not found — server returned generic message
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('If that username exists, an OTP has been sent.'),
+              content: Text('If that account exists, an OTP has been sent.'),
               backgroundColor: Color(0xFF1A6B1A),
               behavior: SnackBarBehavior.floating,
             ),
@@ -57,7 +55,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             builder: (_) => OtpScreen(
               userId: userId,
               type: 'reset',
-              maskedContact: _maskUsername(username),
+              maskedContact: _maskIdentifier(identifier),
             ),
           ),
         );
@@ -71,9 +69,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     }
   }
 
-  String _maskUsername(String username) {
-    if (username.length <= 3) return username;
-    return '${username[0]}${'*' * (username.length - 2)}${username[username.length - 1]}';
+  String _maskIdentifier(String identifier) {
+    if (identifier.contains('@')) {
+      // Mask email: j***@example.com
+      final parts = identifier.split('@');
+      final name = parts[0];
+      final masked = name.length <= 2
+          ? name
+          : '${name[0]}${'*' * (name.length - 1)}';
+      return '$masked@${parts[1]}';
+    } else {
+      // Mask contact: 09*****890
+      if (identifier.length <= 4) return identifier;
+      return '${identifier.substring(0, 2)}${'*' * (identifier.length - 4)}${identifier.substring(identifier.length - 3)}';
+    }
   }
 
   void _showError(String message) {
@@ -114,7 +123,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Enter your username and we\'ll send an OTP to your registered contact number.',
+                'Enter your email or contact number and we\'ll send an OTP to reset your password.',
                 style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
               ),
               const SizedBox(height: 36),
@@ -124,14 +133,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   borderRadius: BorderRadius.circular(32),
                 ),
                 child: TextField(
-                  controller: _usernameController,
+                  controller: _identifierController,
+                  keyboardType: TextInputType.emailAddress,
                   style: const TextStyle(
                     color: _green,
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
                   ),
                   decoration: const InputDecoration(
-                    hintText: 'Username',
+                    hintText: 'Email or Contact Number',
                     hintStyle: TextStyle(
                       color: _green,
                       fontSize: 18,

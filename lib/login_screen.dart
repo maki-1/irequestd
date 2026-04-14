@@ -171,11 +171,14 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 48),
               // App logo
               Center(
-                child: Image.network(
-                  'https://res.cloudinary.com/dvw7ky1xq/image/upload/v1776177600/Irequest_Logo_kbbr2b.jpg',
-                  width: 160,
-                  height: 160,
-                  fit: BoxFit.contain,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Image.network(
+                    'https://res.cloudinary.com/dvw7ky1xq/image/upload/v1776177600/Irequest_Logo_kbbr2b.jpg',
+                    width: 160,
+                    height: 160,
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
               const SizedBox(height: 28),

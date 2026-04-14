@@ -57,6 +57,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     res.json({
       id: user._id,
       username: user.username,
+      fullName: profile?.fullName || '',
       email: user.email,
       contactNumber: user.contactNumber,
       isVerified: user.isVerified,
@@ -361,16 +362,25 @@ router.post('/login', async (req, res) => {
 // ── POST /api/auth/forgot-password ───────────────────────────────────────────
 router.post('/forgot-password', async (req, res) => {
   try {
-    const { username } = req.body;
+    const { identifier } = req.body;
 
-    if (!username) {
-      return res.status(400).json({ message: 'Username is required' });
+    if (!identifier) {
+      return res.status(400).json({ message: 'Email or contact number is required' });
     }
 
-    const user = await User.findOne({ username });
+    const trimmed = identifier.trim();
+
+    // Match by email or contact number
+    const user = await User.findOne({
+      $or: [
+        { email: trimmed },
+        { contactNumber: trimmed },
+      ],
+    });
+
     if (!user) {
       // Don't reveal if user exists
-      return res.json({ message: 'If that username exists, an OTP has been sent.' });
+      return res.json({ message: 'If that account exists, an OTP has been sent.' });
     }
 
     await createAndSendOtp(user._id, user.contactNumber, 'reset');
