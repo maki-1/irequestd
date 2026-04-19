@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import '../services/azure_face_service.dart';
 import 'step_progress_bar.dart';
 import 'id_verification_screen.dart';
 
@@ -13,6 +14,8 @@ class FaceRecognitionScreen extends StatefulWidget {
   State<FaceRecognitionScreen> createState() => _FaceRecognitionScreenState();
 }
 
+enum _LivenessStep { position, moveCloser, moveBack, blink, verifying, done, failed }
+
 class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
     with TickerProviderStateMixin {
   static const Color _lime = Color(0xFF4CFF4C);
@@ -20,32 +23,50 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
 
   CameraController? _ctrl;
   bool _cameraReady = false;
-  bool _scanning = false;
-  bool _captured = false;
   XFile? _photo;
   Uint8List? _photoBytes;
 
-  // Scan line sweeps top→bottom→top continuously while scanning
-  late AnimationController _scanLineCtrl;
-  // Border pulses gently when idle
   late AnimationController _pulseCtrl;
-  // Border color transitions white → lime when scan starts
   late AnimationController _borderCtrl;
 
   Timer? _autoScanTimer;
-  String _hint = 'Position your face\nin the oval';
+  Timer? _stepTimer;
+
+  _LivenessStep _step = _LivenessStep.position;
+  int? _baselineWidth;
+  int? _closerWidth;
+
+  static const _closerRatio = 1.20;
+  static const _fartherRatio = 0.85;
+
+  // Blink detection
+  final _faceDetector = FaceDetector(
+    options: FaceDetectorOptions(enableClassification: true),
+  );
+  bool _blinkProcessing = false;
+
+  String get _hint {
+    switch (_step) {
+      case _LivenessStep.position:
+        return 'Position your face\nin the circle';
+      case _LivenessStep.moveCloser:
+        return 'Move CLOSER\nto the camera';
+      case _LivenessStep.moveBack:
+        return 'Now MOVE BACK\nfrom the camera';
+      case _LivenessStep.blink:
+        return 'Blink your eyes';
+      case _LivenessStep.verifying:
+        return 'Verifying…';
+      case _LivenessStep.done:
+        return 'Scan complete!';
+      case _LivenessStep.failed:
+        return 'Liveness check failed.\nPlease try again.';
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-
-    _scanLineCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    )..addStatusListener((s) {
-        if (s == AnimationStatus.completed) _scanLineCtrl.reverse();
-        if (s == AnimationStatus.dismissed && _scanning) _scanLineCtrl.forward();
-      });
 
     _pulseCtrl = AnimationController(
       vsync: this,
@@ -72,84 +93,192 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
       await _ctrl!.initialize();
       if (!mounted) return;
       setState(() => _cameraReady = true);
-      // Auto-start scan after camera is ready
-      _autoScanTimer = Timer(const Duration(milliseconds: 1200), _startScan);
+      _autoScanTimer = Timer(const Duration(milliseconds: 1200), _runStep);
     } catch (_) {}
   }
 
-  Future<void> _startScan() async {
-    if (_scanning || _captured || !_cameraReady) return;
-    setState(() {
-      _scanning = true;
-      _hint = 'Hold still...';
-    });
-    _borderCtrl.forward();
-    _scanLineCtrl.forward();
+  Future<void> _runStep() async {
+    if (!_cameraReady) return;
 
-    // Scan for ~2.5s then capture
-    await Future.delayed(const Duration(milliseconds: 2500));
-    if (!mounted || _captured) return;
-
-    setState(() => _hint = 'Verifying face…');
-    if (!mounted) return;
-
-    try {
-      final photo = await _ctrl!.takePicture();
-      final bytes = await photo.readAsBytes();
-      _scanLineCtrl.stop();
-
-      // ── Real face detection ───────────────────────────────────────────────
-      final detector = FaceDetector(
-        options: FaceDetectorOptions(
-          performanceMode: FaceDetectorMode.accurate,
-          enableClassification: false,
-        ),
-      );
-      final inputImage = InputImage.fromFilePath(photo.path);
-      final faces = await detector.processImage(inputImage);
-      await detector.close();
-
-      if (!mounted) return;
-
-      if (faces.isEmpty) {
-        // No human face found — reset and retry
-        _scanLineCtrl.reset();
-        _borderCtrl.reset();
-        setState(() {
-          _scanning = false;
-          _hint = 'No face detected.\nPosition your face in the oval.';
-        });
-        Future.delayed(const Duration(seconds: 2), _startScan);
-        return;
-      }
-      // ─────────────────────────────────────────────────────────────────────
-
-      setState(() => _hint = 'Scanning complete!');
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (!mounted) return;
-
-      setState(() {
-        _photo = photo;
-        _photoBytes = bytes;
-        _scanning = false;
-        _captured = true;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _scanning = false);
+    switch (_step) {
+      case _LivenessStep.position:
+        await _captureBaseline();
+        break;
+      case _LivenessStep.moveCloser:
+        await _captureCloser();
+        break;
+      case _LivenessStep.moveBack:
+        await _captureBack();
+        break;
+      case _LivenessStep.blink:
+        await _detectBlink();
+        break;
+      default:
+        break;
     }
   }
 
+  Future<int?> _captureFaceWidth() async {
+    try {
+      final photo = await _ctrl!.takePicture();
+      final bytes = await photo.readAsBytes();
+      final w = await AzureFaceService.detectFaceWidth(bytes);
+      return w;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _captureBaseline() async {
+    setState(() => _step = _LivenessStep.position);
+    _borderCtrl.forward();
+
+    // Wait for user to settle face
+    await Future.delayed(const Duration(milliseconds: 2000));
+    if (!mounted) return;
+
+    setState(() => _step = _LivenessStep.verifying);
+    final w = await _captureFaceWidth();
+    if (!mounted) return;
+
+    if (w == null) {
+      _fail('No face detected.\nPosition your face in the circle.');
+      return;
+    }
+
+    _baselineWidth = w;
+    setState(() => _step = _LivenessStep.moveCloser);
+    // Give user time to move closer then auto-capture
+    _stepTimer = Timer(const Duration(milliseconds: 3000), _captureCloser);
+  }
+
+  Future<void> _captureCloser() async {
+    _stepTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _step = _LivenessStep.verifying);
+
+    final w = await _captureFaceWidth();
+    if (!mounted) return;
+
+    if (w == null) {
+      _fail('No face detected.\nKeep your face in the circle.');
+      return;
+    }
+
+    final ratio = w / _baselineWidth!;
+    if (ratio < _closerRatio) {
+      _fail('Please move closer\nto the camera.');
+      return;
+    }
+
+    _closerWidth = w;
+    setState(() => _step = _LivenessStep.moveBack);
+    _stepTimer = Timer(const Duration(milliseconds: 3000), _captureBack);
+  }
+
+  Future<void> _captureBack() async {
+    _stepTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _step = _LivenessStep.verifying);
+
+    final photo = await _ctrl!.takePicture();
+    final bytes = await photo.readAsBytes();
+
+    final w = await AzureFaceService.detectFaceWidth(bytes);
+    if (!mounted) return;
+
+    if (w == null) {
+      _fail('No face detected.\nKeep your face in the circle.');
+      return;
+    }
+
+    final ratio = w / _closerWidth!;
+    if (ratio > _fartherRatio) {
+      _fail('Please move back\nfrom the camera.');
+      return;
+    }
+
+    // Distance check passed — now blink step
+    setState(() => _step = _LivenessStep.blink);
+    _detectBlink();
+  }
+
+  Future<void> _detectBlink() async {
+    if (!mounted) return;
+    // Poll for blink over 6 seconds using burst captures
+    const maxAttempts = 12;
+    const interval = Duration(milliseconds: 500);
+
+    for (int i = 0; i < maxAttempts; i++) {
+      if (!mounted || _step != _LivenessStep.blink) return;
+      await Future.delayed(interval);
+      if (_blinkProcessing) continue;
+      _blinkProcessing = true;
+
+      try {
+        final photo = await _ctrl!.takePicture();
+        final inputImage = InputImage.fromFilePath(photo.path);
+        final faces = await _faceDetector.processImage(inputImage);
+
+        if (faces.isNotEmpty) {
+          final face = faces.first;
+          final left = face.leftEyeOpenProbability ?? 1.0;
+          final right = face.rightEyeOpenProbability ?? 1.0;
+
+          if (left < 0.3 && right < 0.3) {
+            // Blink detected — capture final selfie
+            final finalPhoto = await _ctrl!.takePicture();
+            final finalBytes = await finalPhoto.readAsBytes();
+            if (!mounted) return;
+            setState(() {
+              _photo = finalPhoto;
+              _photoBytes = finalBytes;
+              _step = _LivenessStep.done;
+            });
+            _borderCtrl.forward();
+            return;
+          }
+        }
+      } catch (_) {
+        // continue
+      } finally {
+        _blinkProcessing = false;
+      }
+    }
+
+    if (mounted && _step == _LivenessStep.blink) {
+      _fail('No blink detected.\nPlease blink your eyes.');
+    }
+  }
+
+  void _fail(String reason) {
+    _borderCtrl.reset();
+    setState(() {
+      _step = _LivenessStep.failed;
+      _baselineWidth = null;
+      _closerWidth = null;
+    });
+    // Show failure briefly then restart
+    _stepTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      _borderCtrl.reset();
+      setState(() => _step = _LivenessStep.position);
+      _runStep();
+    });
+  }
+
   void _retake() {
-    _scanLineCtrl.reset();
+    _stepTimer?.cancel();
     _borderCtrl.reset();
     setState(() {
       _photo = null;
       _photoBytes = null;
-      _captured = false;
-      _scanning = false;
-      _hint = 'Position your face\nin the oval';
+      _step = _LivenessStep.position;
+      _baselineWidth = null;
+      _closerWidth = null;
+      _blinkProcessing = false;
     });
-    Future.delayed(const Duration(milliseconds: 500), _startScan);
+    Future.delayed(const Duration(milliseconds: 500), _runStep);
   }
 
   void _continue() {
@@ -164,12 +293,20 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
   @override
   void dispose() {
     _autoScanTimer?.cancel();
-    _scanLineCtrl.dispose();
+    _stepTimer?.cancel();
     _pulseCtrl.dispose();
     _borderCtrl.dispose();
     _ctrl?.dispose();
+    _faceDetector.close();
     super.dispose();
   }
+
+  bool get _isDone => _step == _LivenessStep.done;
+  bool get _isActive =>
+      _step == _LivenessStep.position ||
+      _step == _LivenessStep.moveCloser ||
+      _step == _LivenessStep.moveBack ||
+      _step == _LivenessStep.blink;
 
   @override
   Widget build(BuildContext context) {
@@ -180,31 +317,61 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Camera / captured photo ──────────────────────────────────────
-          if (_cameraReady && !_captured)
+          // Camera always live (no preview of captured photo)
+          if (_cameraReady)
             SizedBox.expand(child: CameraPreview(_ctrl!)),
-          if (_captured && _photoBytes != null)
-            Image.memory(_photoBytes!, fit: BoxFit.cover, width: size.width, height: size.height),
 
-          // ── Oval overlay ─────────────────────────────────────────────────
+          // Circle overlay
           AnimatedBuilder(
-            animation: Listenable.merge([_scanLineCtrl, _pulseCtrl, _borderCtrl]),
+            animation: Listenable.merge([_pulseCtrl, _borderCtrl]),
             builder: (_, __) {
-              final borderColor = ColorTween(begin: Colors.white70, end: _lime)
-                  .evaluate(_borderCtrl)!;
-              final pulse = _captured ? 1.0 : (1.0 + _pulseCtrl.value * 0.015);
+              final Color borderColor;
+              if (_isDone) {
+                borderColor = _lime;
+              } else if (_step == _LivenessStep.failed) {
+                borderColor = Colors.redAccent;
+              } else {
+                borderColor = ColorTween(begin: Colors.white70, end: _lime)
+                    .evaluate(_borderCtrl)!;
+              }
+              final pulse = _isActive ? (1.0 + _pulseCtrl.value * 0.015) : 1.0;
+              final Color circleColor;
+              switch (_step) {
+                case _LivenessStep.position:
+                  circleColor = Colors.black.withValues(alpha: 0.62);
+                  break;
+                case _LivenessStep.moveCloser:
+                  circleColor = Colors.blue.withValues(alpha: 0.55);
+                  break;
+                case _LivenessStep.moveBack:
+                  circleColor = Colors.orange.withValues(alpha: 0.55);
+                  break;
+                case _LivenessStep.blink:
+                  circleColor = Colors.purple.withValues(alpha: 0.55);
+                  break;
+                case _LivenessStep.verifying:
+                  circleColor = Colors.black.withValues(alpha: 0.62);
+                  break;
+                case _LivenessStep.done:
+                  circleColor = const Color(0xFF4CFF4C).withValues(alpha: 0.45);
+                  break;
+                case _LivenessStep.failed:
+                  circleColor = Colors.red.withValues(alpha: 0.55);
+                  break;
+              }
               return CustomPaint(
                 size: size,
-                painter: _OvalOverlayPainter(
-                  scanProgress: _scanning ? _scanLineCtrl.value : -1,
+                painter: _CircleOverlayPainter(
                   pulse: pulse,
-                  borderColor: _captured ? _lime : borderColor,
+                  borderColor: borderColor,
+                  circleColor: circleColor,
+                  step: _step,
                 ),
               );
             },
           ),
 
-          // ── UI chrome ────────────────────────────────────────────────────
+          // UI chrome
           SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -234,11 +401,13 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 300),
                   child: Container(
-                    key: ValueKey(_hint),
+                    key: ValueKey(_step),
                     margin: const EdgeInsets.symmetric(horizontal: 32),
                     padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Colors.black54,
+                      color: _step == _LivenessStep.failed
+                          ? Colors.red.withValues(alpha: 0.75)
+                          : Colors.black54,
                       borderRadius: BorderRadius.circular(30),
                     ),
                     child: Text(
@@ -249,7 +418,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                   ),
                 ),
 
-                if (_captured) ...[
+                if (_isDone) ...[
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
@@ -263,7 +432,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                       children: [
                         Icon(Icons.check_circle_rounded, color: Color(0xFF4CFF4C), size: 18),
                         SizedBox(width: 8),
-                        Text('Face captured!',
+                        Text('Liveness verified!',
                             style: TextStyle(color: Color(0xFF4CFF4C), fontSize: 14, fontWeight: FontWeight.w600)),
                       ],
                     ),
@@ -272,14 +441,12 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
 
                 const SizedBox(height: 28),
 
-                // Bottom buttons
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: _buildBottomBar(),
                 ),
 
-                // Tip chips
-                if (!_captured) ...[
+                if (!_isDone) ...[
                   const SizedBox(height: 16),
                   Wrap(
                     alignment: WrapAlignment.center,
@@ -302,7 +469,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
   }
 
   Widget _buildBottomBar() {
-    if (_captured) {
+    if (_isDone) {
       return Row(
         children: [
           Expanded(
@@ -336,108 +503,125 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
       );
     }
 
-    if (_scanning) {
+    if (_step == _LivenessStep.verifying) {
       return const SizedBox(
         height: 54,
         child: Center(
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFF4CFF4C)),
-              ),
+              SizedBox(width: 20, height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFF4CFF4C))),
               SizedBox(width: 12),
-              Text('Scanning your face…',
-                  style: TextStyle(color: Colors.white70, fontSize: 15)),
+              Text('Verifying…', style: TextStyle(color: Colors.white70, fontSize: 15)),
             ],
           ),
         ),
       );
     }
 
-    return SizedBox(
-      width: double.infinity,
-      height: 54,
-      child: ElevatedButton.icon(
-        onPressed: _cameraReady ? _startScan : null,
-        icon: const Icon(Icons.face_rounded),
-        label: Text(
-          _cameraReady ? 'Start Face Scan' : 'Loading camera…',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _gold,
-          foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
-        ),
-      ),
-    );
+    return const SizedBox(height: 54);
   }
 }
 
-// ── Oval overlay painter ───────────────────────────────────────────────────────
+// ── Circle overlay painter ────────────────────────────────────────────────────
 
-class _OvalOverlayPainter extends CustomPainter {
-  final double scanProgress; // -1 = no scan line
+class _CircleOverlayPainter extends CustomPainter {
   final double pulse;
   final Color borderColor;
+  final Color circleColor;
+  final _LivenessStep step;
 
-  const _OvalOverlayPainter({
-    required this.scanProgress,
+  const _CircleOverlayPainter({
     required this.pulse,
     required this.borderColor,
+    required this.circleColor,
+    required this.step,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height * 0.43);
-    final w = size.width * 0.68 * pulse;
-    final h = w * 1.35;
-    final oval = Rect.fromCenter(center: center, width: w, height: h);
+    final radius = size.width * 0.38 * pulse;
+    final circle = Rect.fromCenter(center: center, width: radius * 2, height: radius * 2);
 
-    // Dark overlay with oval cutout
+    // Colored overlay outside circle
     final path = Path()
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addOval(oval)
+      ..addOval(circle)
       ..fillType = PathFillType.evenOdd;
-    canvas.drawPath(path, Paint()..color = Colors.black.withValues(alpha: 0.62));
+    canvas.drawPath(path, Paint()..color = circleColor);
 
-    // Oval border
-    canvas.drawOval(
-      oval,
+    // Circle border
+    canvas.drawCircle(
+      center,
+      radius,
       Paint()
         ..color = borderColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.5,
     );
 
-    // Scan line
-    if (scanProgress >= 0) {
-      final y = oval.top + oval.height * scanProgress;
-      canvas.save();
-      canvas.clipPath(Path()..addOval(oval));
-      canvas.drawLine(
-        Offset(oval.left, y),
-        Offset(oval.right, y),
-        Paint()
-          ..shader = LinearGradient(colors: [
-            Colors.transparent,
-            borderColor.withValues(alpha: 0.9),
-            Colors.transparent,
-          ]).createShader(oval)
-          ..strokeWidth = 2.5,
-      );
-      canvas.restore();
+    // Draw direction arrows for closer/back steps
+    if (step == _LivenessStep.moveCloser || step == _LivenessStep.moveBack) {
+      _drawArrow(canvas, center, radius, step == _LivenessStep.moveCloser);
+    }
+
+    // Draw eye icon during blink step
+    if (step == _LivenessStep.blink) {
+      final eyePaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.85)
+        ..strokeWidth = 2.5
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      final eyeY = center.dy + radius + 28;
+      // Simple eye shape
+      final eyePath = Path()
+        ..moveTo(center.dx - 22, eyeY)
+        ..quadraticBezierTo(center.dx, eyeY - 14, center.dx + 22, eyeY)
+        ..quadraticBezierTo(center.dx, eyeY + 14, center.dx - 22, eyeY);
+      canvas.drawPath(eyePath, eyePaint);
+      canvas.drawCircle(Offset(center.dx, eyeY), 5,
+          Paint()..color = Colors.white.withValues(alpha: 0.85));
+    }
+  }
+
+  void _drawArrow(Canvas canvas, Offset center, double radius, bool inward) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.85)
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+
+    final arrowY = center.dy + radius + 24;
+    const arrowLen = 24.0;
+
+    if (inward) {
+      // Two arrows pointing inward (→ center ←)
+      // Left arrow →
+      canvas.drawLine(Offset(center.dx - 60, arrowY), Offset(center.dx - 18, arrowY), paint);
+      canvas.drawLine(Offset(center.dx - 18, arrowY), Offset(center.dx - 30, arrowY - 10), paint);
+      canvas.drawLine(Offset(center.dx - 18, arrowY), Offset(center.dx - 30, arrowY + 10), paint);
+      // Right arrow ←
+      canvas.drawLine(Offset(center.dx + 60, arrowY), Offset(center.dx + 18, arrowY), paint);
+      canvas.drawLine(Offset(center.dx + 18, arrowY), Offset(center.dx + 30, arrowY - 10), paint);
+      canvas.drawLine(Offset(center.dx + 18, arrowY), Offset(center.dx + 30, arrowY + 10), paint);
+    } else {
+      // Two arrows pointing outward (← center →)
+      canvas.drawLine(Offset(center.dx - 18, arrowY), Offset(center.dx - 18 - arrowLen, arrowY), paint);
+      canvas.drawLine(Offset(center.dx - 18 - arrowLen, arrowY), Offset(center.dx - 18 - arrowLen + 12, arrowY - 10), paint);
+      canvas.drawLine(Offset(center.dx - 18 - arrowLen, arrowY), Offset(center.dx - 18 - arrowLen + 12, arrowY + 10), paint);
+      canvas.drawLine(Offset(center.dx + 18, arrowY), Offset(center.dx + 18 + arrowLen, arrowY), paint);
+      canvas.drawLine(Offset(center.dx + 18 + arrowLen, arrowY), Offset(center.dx + 18 + arrowLen - 12, arrowY - 10), paint);
+      canvas.drawLine(Offset(center.dx + 18 + arrowLen, arrowY), Offset(center.dx + 18 + arrowLen - 12, arrowY + 10), paint);
     }
   }
 
   @override
-  bool shouldRepaint(_OvalOverlayPainter old) =>
-      old.scanProgress != scanProgress ||
+  bool shouldRepaint(_CircleOverlayPainter old) =>
       old.pulse != pulse ||
-      old.borderColor != borderColor;
+      old.borderColor != borderColor ||
+      old.circleColor != circleColor ||
+      old.step != step;
 }
 
 // ── Tip chip ──────────────────────────────────────────────────────────────────

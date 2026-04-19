@@ -50,6 +50,9 @@ backend/node_modules/
 .env.*
 !.env.example
 
+# Files with hardcoded secrets — NEVER commit
+lib/services/azure_face_service.dart
+
 # Uploaded user files (runtime data, not source)
 backend/uploads/
 

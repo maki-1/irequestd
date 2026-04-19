@@ -372,6 +372,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                 color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
       );
 
+
   Widget _dropdown({
     required String? value,
     required String hint,
