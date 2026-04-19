@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'step_progress_bar.dart';
 import 'id_verification_screen.dart';
 
@@ -89,15 +90,44 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
     await Future.delayed(const Duration(milliseconds: 2500));
     if (!mounted || _captured) return;
 
-    setState(() => _hint = 'Scanning complete!');
-    await Future.delayed(const Duration(milliseconds: 300));
+    setState(() => _hint = 'Verifying face…');
     if (!mounted) return;
 
     try {
       final photo = await _ctrl!.takePicture();
       final bytes = await photo.readAsBytes();
       _scanLineCtrl.stop();
+
+      // ── Real face detection ───────────────────────────────────────────────
+      final detector = FaceDetector(
+        options: FaceDetectorOptions(
+          performanceMode: FaceDetectorMode.accurate,
+          enableClassification: false,
+        ),
+      );
+      final inputImage = InputImage.fromFilePath(photo.path);
+      final faces = await detector.processImage(inputImage);
+      await detector.close();
+
       if (!mounted) return;
+
+      if (faces.isEmpty) {
+        // No human face found — reset and retry
+        _scanLineCtrl.reset();
+        _borderCtrl.reset();
+        setState(() {
+          _scanning = false;
+          _hint = 'No face detected.\nPosition your face in the oval.';
+        });
+        Future.delayed(const Duration(seconds: 2), _startScan);
+        return;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      setState(() => _hint = 'Scanning complete!');
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+
       setState(() {
         _photo = photo;
         _photoBytes = bytes;

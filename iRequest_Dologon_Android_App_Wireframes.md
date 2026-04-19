@@ -867,7 +867,7 @@ Educational Certificate  No        -    5MB   PDF/JPG/PNG
 
 ---
 
-### SCREEN 10: STEP 3 - ID VERIFICATION
+### SCREEN 10: STEP 4 - ID VERIFICATION
 **Purpose:** Collect identity documents
 **Step:** 3 of 3 verification steps
 

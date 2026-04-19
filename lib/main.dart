@@ -382,7 +382,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             _titleIRequest(),
             const SizedBox(height: 30),
             ClipRRect(
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(10),
               child: Image.network(
                 'https://res.cloudinary.com/dvw7ky1xq/image/upload/v1776177600/Irequest_Logo_kbbr2b.jpg',
                 width: 260,

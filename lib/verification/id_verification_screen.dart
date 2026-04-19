@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import '../services/api_service.dart';
 import 'step_progress_bar.dart';
 import 'verification_waiting_screen.dart';
@@ -431,10 +432,47 @@ class _IdCameraPageState extends State<_IdCameraPage>
   CameraController? _ctrl;
   bool _cameraReady = false;
   bool _captured = false;
+  bool _validating = false;
+  String? _validationError;
   XFile? _photo;
   Uint8List? _photoBytes;
 
   late AnimationController _cornerAnim;
+
+  // Philippine IDs always contain these keywords
+  static const _phIdKeywords = [
+    'republic of the philippines',
+    'republika ng pilipinas',
+    'philippine',
+    'pilipinas',
+    'lto',
+    'ltfrb',
+    'philhealth',
+    'pag-ibig',
+    'pagibig',
+    'sss',
+    'gsis',
+    'umid',
+    'comelec',
+    'prc',
+    'passport',
+    'driver',
+    'license',
+    'voter',
+    'postal',
+    'national id',
+    'philid',
+    'senior citizen',
+    'pwd',
+    'date of birth',
+    'birthday',
+    'nationality',
+    'address',
+    'signature',
+    'valid until',
+    'expiry',
+    'expiration',
+  ];
 
   @override
   void initState() {
@@ -461,16 +499,48 @@ class _IdCameraPageState extends State<_IdCameraPage>
   }
 
   Future<void> _capture() async {
-    if (!_cameraReady || _captured) return;
+    if (!_cameraReady || _captured || _validating) return;
+    setState(() { _validating = true; _validationError = null; });
+
     try {
       final photo = await _ctrl!.takePicture();
       final bytes = await photo.readAsBytes();
+
+      // ── PH ID text detection ──────────────────────────────────────────────
+      final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+      final inputImage = InputImage.fromFilePath(photo.path);
+      final recognized = await recognizer.processImage(inputImage);
+      await recognizer.close();
+
+      final fullText = recognized.text.toLowerCase();
+      final totalChars = fullText.replaceAll(RegExp(r'\s'), '').length;
+
+      // Check for PH ID keyword OR enough text content (≥40 chars of non-space)
+      final hasKeyword = _phIdKeywords.any((kw) => fullText.contains(kw));
+      final hasEnoughText = totalChars >= 40;
+
+      if (!hasKeyword && !hasEnoughText) {
+        if (mounted) {
+          setState(() {
+            _validating = false;
+            _validationError = 'No valid ID detected.\nMake sure your ID fits inside the frame\nand is clearly visible.';
+          });
+        }
+        return;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      if (!mounted) return;
       setState(() {
         _photo = photo;
         _photoBytes = bytes;
         _captured = true;
+        _validating = false;
+        _validationError = null;
       });
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) setState(() => _validating = false);
+    }
   }
 
   void _retake() {
@@ -478,6 +548,8 @@ class _IdCameraPageState extends State<_IdCameraPage>
       _photo = null;
       _photoBytes = null;
       _captured = false;
+      _validating = false;
+      _validationError = null;
     });
   }
 
@@ -544,20 +616,25 @@ class _IdCameraPageState extends State<_IdCameraPage>
 
                 const Spacer(),
 
-                // Instruction
+                // Instruction / validation error
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 24),
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   decoration: BoxDecoration(
-                    color: Colors.black54,
+                    color: _validationError != null
+                        ? Colors.red.withValues(alpha: 0.75)
+                        : Colors.black54,
                     borderRadius: BorderRadius.circular(30),
                   ),
                   child: Text(
-                    _captured
-                        ? 'Check that all details are clear'
-                        : 'Fit your ID within the frame',
+                    _validationError ??
+                        (_validating
+                            ? 'Checking ID…'
+                            : _captured
+                                ? 'Check that all details are clear'
+                                : 'Fit your Philippine ID within the frame'),
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
                   ),
                 ),
 
@@ -604,23 +681,34 @@ class _IdCameraPageState extends State<_IdCameraPage>
                       : SizedBox(
                           width: double.infinity,
                           height: 64,
-                          child: GestureDetector(
-                            onTap: _cameraReady ? _capture : null,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 4),
-                              ),
-                              child: Center(
-                                child: Container(
-                                  width: 52,
-                                  height: 52,
-                                  decoration: const BoxDecoration(
-                                      color: Colors.white, shape: BoxShape.circle),
+                          child: _validating
+                              ? const Center(
+                                  child: SizedBox(
+                                    width: 40,
+                                    height: 40,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 3, color: Colors.white),
+                                  ),
+                                )
+                              : GestureDetector(
+                                  onTap: _cameraReady ? _capture : null,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border:
+                                          Border.all(color: Colors.white, width: 4),
+                                    ),
+                                    child: Center(
+                                      child: Container(
+                                        width: 52,
+                                        height: 52,
+                                        decoration: const BoxDecoration(
+                                            color: Colors.white,
+                                            shape: BoxShape.circle),
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                          ),
                         ),
                 ),
 
