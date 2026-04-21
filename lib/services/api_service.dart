@@ -7,6 +7,8 @@ class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
   static const String _baseUrl = 'https://irequestd.onrender.com/api';
+  // static const String _baseUrl = 'http://10.0.2.2:5000/api'; // Android emulator
+  // static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web
 
   // ── Token helpers ────────────────────────────────────────────────────────────
 
@@ -321,6 +323,16 @@ class ApiService {
     );
   }
 
+  // ── Document prices ───────────────────────────────────────────────────────
+
+  /// Fetches all document prices from the DB (set by admin).
+  /// Returns a list of { documentType, pricecentavos, description }
+  static Future<List<dynamic>> fetchDocumentPrices() async {
+    final res = await http.get(Uri.parse('$_baseUrl/admin/prices'));
+    if (res.statusCode == 200) return jsonDecode(res.body) as List<dynamic>;
+    return [];
+  }
+
   // ── Payment endpoints ─────────────────────────────────────────────────────
 
   /// Creates a PayMongo payment link + a pending request record.
@@ -330,6 +342,7 @@ class ApiService {
     required String purpose,
     String additionalDetails = '',
     required String deliveryMethod,
+    String yearsAtAddress = '',
   }) async {
     final res = await http.post(
       Uri.parse('$_baseUrl/payment/create-link'),
@@ -339,7 +352,18 @@ class ApiService {
         'purpose': purpose,
         'additionalDetails': additionalDetails,
         'deliveryMethod': deliveryMethod,
+        'yearsAtAddress': yearsAtAddress,
       }),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return {'statusCode': res.statusCode, ...body};
+  }
+
+  /// DEV ONLY — skips PayMongo and marks the request as paid instantly.
+  static Future<Map<String, dynamic>> devSkipPayment(String requestId) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/payment/dev-skip/$requestId'),
+      headers: await _authHeaders(),
     );
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return {'statusCode': res.statusCode, ...body};

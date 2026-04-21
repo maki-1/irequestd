@@ -5,6 +5,13 @@ const Admin   = require('../models/Admin');
 const User    = require('../models/User');
 const VerificationProfile = require('../models/VerificationProfile');
 const Request = require('../models/Request');
+const DocumentPrice = require('../models/DocumentPrice');
+
+const DEFAULT_PRICES = [
+  { documentType: 'Barangay Clearance',       pricecentavos: 10000, description: 'Standard processing fee for barangay clearance (₱100.00)' },
+  { documentType: 'Certificate of Residency', pricecentavos:  5000, description: 'Processing fee for proof of address certificate (₱50.00)' },
+  { documentType: 'Certificate of Indigency', pricecentavos:     0, description: 'Free — financial aid certificate (₱0.00)' },
+];
 
 // ── Admin auth middleware ─────────────────────────────────────────────────────
 function adminAuth(req, res, next) {
@@ -56,6 +63,21 @@ router.post('/login', async (req, res) => {
       { expiresIn: '8h' }
     );
     res.json({ token, name: admin.name, role: admin.role });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── GET /api/admin/prices ─────────────────────────────────────────────────────
+// Public — Flutter app reads prices to display to users.
+router.get('/prices', async (req, res) => {
+  try {
+    let prices = await DocumentPrice.find().sort('documentType');
+    if (prices.length === 0) {
+      prices = await DocumentPrice.insertMany(DEFAULT_PRICES);
+    }
+    res.json(prices);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -178,6 +200,33 @@ router.put('/requests/:id/status', async (req, res) => {
     if (!request) return res.status(404).json({ message: 'Not found' });
     res.json({ message: 'Status updated', status: request.status });
   } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── PUT /api/admin/prices/:documentType ───────────────────────────────────────
+// Admin only — update price for a specific document type.
+router.put('/prices/:documentType', adminAuth, async (req, res) => {
+  try {
+    const { pricecentavos, description } = req.body;
+    if (pricecentavos === undefined || typeof pricecentavos !== 'number' || pricecentavos < 0) {
+      return res.status(400).json({ message: 'pricecentavos must be a non-negative number' });
+    }
+
+    const docType = decodeURIComponent(req.params.documentType);
+    const price = await DocumentPrice.findOneAndUpdate(
+      { documentType: docType },
+      {
+        pricecentavos,
+        description: description ?? '',
+        updatedBy: req.admin?.username ?? 'admin',
+      },
+      { new: true, upsert: true }
+    );
+
+    res.json(price);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });

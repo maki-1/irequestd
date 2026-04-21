@@ -24,8 +24,12 @@ const requestSchema = new mongoose.Schema(
     },
     deliveryMethod: {
       type: String,
-      enum: ['Pick up at Barangay Office', 'Digital (Email)'],
+      enum: ['Pick up at Barangay Office'],
       required: true,
+    },
+    yearsAtAddress: {
+      type: String,
+      default: '',
     },
     status: {
       type: String,

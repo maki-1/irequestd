@@ -15,7 +15,9 @@ class RequestDocumentScreen extends StatefulWidget {
 class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   static const Color _green = Color(0xFF1A6B1A);
   static const Color _limeGreen = Color(0xFF4CFF4C);
-  static const double _pricePhp = 5.0;
+
+  // prices loaded from DB: { 'Barangay Clearance': 100.0, ... }
+  Map<String, double> _prices = {};
 
   static const _docTypes = [
     'Barangay Clearance',
@@ -34,7 +36,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
 
   static const _deliveryMethods = [
     'Pick up at Barangay Office',
-    'Digital (Email)',
   ];
 
   static const _docIcons = {
@@ -47,22 +48,41 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   String? _purpose;
   String? _deliveryMethod;
   final _detailsController = TextEditingController();
+  final _yearsAtAddressController = TextEditingController();
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
     _docType = widget.preselectedType;
+    _loadPrices();
   }
+
+  Future<void> _loadPrices() async {
+    final list = await ApiService.fetchDocumentPrices();
+    if (!mounted) return;
+    setState(() {
+      _prices = {
+        for (final p in list)
+          p['documentType'] as String: (p['pricecentavos'] as int) / 100.0,
+      };
+    });
+  }
+
+  double get _selectedPrice => _prices[_docType] ?? 0.0;
 
   @override
   void dispose() {
     _detailsController.dispose();
+    _yearsAtAddressController.dispose();
     super.dispose();
   }
 
   bool get _canProceed =>
-      _docType != null && _purpose != null && _deliveryMethod != null;
+      _docType != null &&
+      _purpose != null &&
+      _deliveryMethod != null &&
+      _yearsAtAddressController.text.trim().isNotEmpty;
 
   // Shows payment bottom sheet — user confirms then pays via PayMongo
   void _showPaymentSheet() {
@@ -75,7 +95,8 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         purpose: _purpose!,
         additionalDetails: _detailsController.text.trim(),
         deliveryMethod: _deliveryMethod!,
-        pricePhp: _pricePhp,
+        yearsAtAddress: _yearsAtAddressController.text.trim(),
+        pricePhp: _selectedPrice,
         onPaid: () {
           Navigator.pop(context); // close sheet
           Navigator.pushReplacement(
@@ -150,14 +171,32 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             ),
             const SizedBox(height: 20),
 
+            _sectionLabel('Years at Address *'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _yearsAtAddressController,
+              keyboardType: TextInputType.number,
+              onChanged: (_) => setState(() {}),
+              style: const TextStyle(fontSize: 14, color: Colors.black87),
+              decoration: InputDecoration(
+                hintText: 'e.g. 5',
+                hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.all(16),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 20),
+
             _sectionLabel('Delivery Method *'),
             const SizedBox(height: 8),
             ..._deliveryMethods.map((m) => _radioCard(
                   value: m,
                   groupValue: _deliveryMethod,
-                  icon: m.contains('Email')
-                      ? Icons.email_outlined
-                      : Icons.store_outlined,
+                  icon: Icons.store_outlined,
                   onChanged: (v) => setState(() => _deliveryMethod = v),
                 )),
             const SizedBox(height: 24),
@@ -177,7 +216,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                   const Text('Processing fee',
                       style: TextStyle(fontSize: 14, color: Colors.black54)),
                   Text(
-                    '₱${_pricePhp.toStringAsFixed(2)}',
+                    '₱${_selectedPrice.toStringAsFixed(2)}',
                     style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
@@ -194,7 +233,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
               child: ElevatedButton.icon(
                 onPressed: (_canProceed && !_isLoading) ? _showPaymentSheet : null,
                 icon: const Icon(Icons.payment_rounded),
-                label: const Text('Proceed to Payment  ₱5.00',
+                label: Text('Proceed to Payment  ₱${_selectedPrice.toStringAsFixed(2)}',
                     style:
                         TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 style: ElevatedButton.styleFrom(
@@ -308,6 +347,7 @@ class _PaymentSheet extends StatefulWidget {
   final String purpose;
   final String additionalDetails;
   final String deliveryMethod;
+  final String yearsAtAddress;
   final double pricePhp;
   final VoidCallback onPaid;
 
@@ -316,6 +356,7 @@ class _PaymentSheet extends StatefulWidget {
     required this.purpose,
     required this.additionalDetails,
     required this.deliveryMethod,
+    required this.yearsAtAddress,
     required this.pricePhp,
     required this.onPaid,
   });
@@ -330,6 +371,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
 
   _PayState _state = _PayState.idle;
   String? _linkId;
+  String? _requestId;
   String? _checkoutUrl;
   String? _errorMsg;
   Timer? _pollTimer;
@@ -351,6 +393,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         purpose: widget.purpose,
         additionalDetails: widget.additionalDetails,
         deliveryMethod: widget.deliveryMethod,
+        yearsAtAddress: widget.yearsAtAddress,
       );
 
       if (result['statusCode'] != 201) {
@@ -362,6 +405,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
       }
 
       _linkId = result['linkId'] as String;
+      _requestId = result['requestId'] as String?;
       _checkoutUrl = result['checkoutUrl'] as String;
 
       // Open PayMongo checkout in browser
@@ -377,6 +421,35 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         _state = _PayState.error;
         _errorMsg = 'Connection error. Please try again.';
       });
+    }
+  }
+
+  Future<void> _devSkip() async {
+    setState(() { _state = _PayState.creatingLink; _errorMsg = null; });
+    try {
+      // Create the request record first, then immediately mark it paid
+      final result = await ApiService.createPaymentLink(
+        documentType: widget.documentType,
+        purpose: widget.purpose,
+        additionalDetails: widget.additionalDetails,
+        deliveryMethod: widget.deliveryMethod,
+        yearsAtAddress: widget.yearsAtAddress,
+      );
+      if (result['statusCode'] != 201) {
+        setState(() { _state = _PayState.error; _errorMsg = result['message'] as String? ?? 'Failed'; });
+        return;
+      }
+      _requestId = result['requestId'] as String;
+      final skip = await ApiService.devSkipPayment(_requestId!);
+      if (skip['paid'] == true) {
+        setState(() => _state = _PayState.paid);
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (mounted) widget.onPaid();
+      } else {
+        setState(() { _state = _PayState.error; _errorMsg = 'Dev skip failed.'; });
+      }
+    } catch (_) {
+      setState(() { _state = _PayState.error; _errorMsg = 'Connection error.'; });
     }
   }
 
@@ -443,13 +516,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
           // Order details
           _summaryRow(Icons.description_outlined, 'Document', widget.documentType),
           _summaryRow(Icons.info_outline_rounded, 'Purpose', widget.purpose),
-          _summaryRow(
-            widget.deliveryMethod.contains('Email')
-                ? Icons.email_outlined
-                : Icons.store_outlined,
-            'Delivery',
-            widget.deliveryMethod,
-          ),
+          _summaryRow(Icons.store_outlined, 'Delivery', widget.deliveryMethod),
           const Divider(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -489,20 +556,41 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   Widget _buildStateContent() {
     switch (_state) {
       case _PayState.idle:
-        return SizedBox(
-          width: double.infinity,
-          height: 54,
-          child: ElevatedButton.icon(
-            onPressed: _createLinkAndPay,
-            icon: const Icon(Icons.open_in_browser_rounded),
-            label: const Text('Pay ₱5.00 via PayMongo',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _green,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+        return Column(
+          children: [
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: ElevatedButton.icon(
+                onPressed: _createLinkAndPay,
+                icon: const Icon(Icons.open_in_browser_rounded),
+                label: const Text('Pay ₱5.00 via PayMongo',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+                ),
+              ),
             ),
-          ),
+            const SizedBox(height: 10),
+            // DEV ONLY — remove before production
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: _devSkip,
+                icon: const Icon(Icons.developer_mode_rounded, size: 18),
+                label: const Text('[DEV] Skip Payment',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.orange,
+                  side: const BorderSide(color: Colors.orange),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+                ),
+              ),
+            ),
+          ],
         );
 
       case _PayState.creatingLink:

@@ -5,8 +5,15 @@ const crypto = require('crypto');
 const authMiddleware = require('../middleware/auth');
 const Request = require('../models/Request');
 
+const DocumentPrice = require('../models/DocumentPrice');
+
 const PAYMONGO_BASE = 'https://api.paymongo.com/v1';
-const PRICE = parseInt(process.env.DOCUMENT_PRICE_CENTAVOS || '500', 10); // ₱5.00
+const FALLBACK_PRICE = parseInt(process.env.DOCUMENT_PRICE_CENTAVOS || '500', 10);
+
+async function getPriceCentavos(documentType) {
+  const entry = await DocumentPrice.findOne({ documentType });
+  return entry ? entry.pricecentavos : FALLBACK_PRICE;
+}
 
 function paymongoAuth() {
   const key = process.env.PAYMONGO_SECRET_KEY || '';
@@ -18,13 +25,14 @@ function paymongoAuth() {
 // Returns { checkoutUrl, linkId, requestId }
 router.post('/create-link', authMiddleware, async (req, res) => {
   try {
-    const { documentType, purpose, additionalDetails, deliveryMethod } = req.body;
+    const { documentType, purpose, additionalDetails, deliveryMethod, yearsAtAddress } = req.body;
 
     if (!documentType || !purpose || !deliveryMethod) {
       return res.status(400).json({ message: 'Document type, purpose, and delivery method are required' });
     }
 
     // 1. Create PayMongo payment link
+    const PRICE = await getPriceCentavos(documentType);
     const pmRes = await axios.post(
       `${PAYMONGO_BASE}/links`,
       {
@@ -55,6 +63,7 @@ router.post('/create-link', authMiddleware, async (req, res) => {
       purpose,
       additionalDetails: additionalDetails || '',
       deliveryMethod,
+      yearsAtAddress: yearsAtAddress || '',
       paymentStatus: 'unpaid',
       paymentLinkId: linkId,
       amountPaid: 0,
@@ -97,6 +106,7 @@ router.get('/status/:linkId', authMiddleware, async (req, res) => {
     const linkStatus = pmRes.data.data.attributes.status;
 
     if (linkStatus === 'paid') {
+      const PRICE = await getPriceCentavos(request.documentType);
       request.paymentStatus = 'paid';
       request.amountPaid = PRICE;
       await request.save();
@@ -145,6 +155,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     if (eventType === 'link.payment.paid') {
       const linkId = body?.data?.attributes?.data?.attributes?.link_id;
       if (linkId) {
+        const req_ = await Request.findOne({ paymentLinkId: linkId });
+        const PRICE = req_ ? await getPriceCentavos(req_.documentType) : FALLBACK_PRICE;
         await Request.findOneAndUpdate(
           { paymentLinkId: linkId },
           { paymentStatus: 'paid', amountPaid: PRICE }
@@ -158,5 +170,20 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     res.status(500).json({ message: 'Webhook handling failed' });
   }
 });
+
+// ── POST /api/payment/dev-skip/:requestId ────────────────────────────────────
+// DEV ONLY — instantly marks a request as paid without PayMongo.
+// Remove or disable this before deploying to production.
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/dev-skip/:requestId', authMiddleware, async (req, res) => {
+    const request = await Request.findOneAndUpdate(
+      { _id: req.params.requestId, user: req.user.id },
+      { paymentStatus: 'paid', amountPaid: await getPriceCentavos(request?.documentType) },
+      { new: true }
+    );
+    if (!request) return res.status(404).json({ message: 'Request not found' });
+    res.json({ paid: true, requestId: request._id });
+  });
+}
 
 module.exports = router;
