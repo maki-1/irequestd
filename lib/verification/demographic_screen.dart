@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import '../services/api_service.dart';
 import 'step_progress_bar.dart';
 import 'education_screen.dart';
@@ -17,11 +15,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
   static const Color _green = Color(0xFF1A6B1A);
   static const Color _limeGreen = Color(0xFF4CFF4C);
 
-  static const _psgcBase = 'https://psgc.gitlab.io/api';
-
-  // PSGC codes
-  static const _bukidnonCode = '101300000';
-  static const _maramagCode = '101302000';
+  static const _fixedMunicipality = 'Maramag';
+  static const _fixedBarangay = 'Dologon';
 
   // Hardcoded Dologon puroks (PSGC has no purok-level data)
   static const _dologonPuroks = [
@@ -41,137 +36,27 @@ class _DemographicScreenState extends State<DemographicScreen> {
   final _fullNameController = TextEditingController();
   final _houseStreetController = TextEditingController();
   final _ageController = TextEditingController();
+  final _yearsAtAddressController = TextEditingController();
   final _motherNameController = TextEditingController();
   final _fatherNameController = TextEditingController();
 
   String? _gender;
-  String? _yearsAtAddress;
   bool _isLoading = false;
   bool _agreedToTerms = false;
 
-  // Location state
-  List<Map<String, String>> _municipalities = [];
-  List<Map<String, String>> _barangays = [];
-
-  // Province is defaulted to Bukidnon (fixed display name; code used for API)
   static const _provinceName = 'Bukidnon';
 
-  String? _selectedMunicipalityCode;
-  String? _selectedMunicipalityName;
-  String? _selectedBarangay;
   String? _selectedPurok;
 
-  bool _loadingMunicipalities = false;
-  bool _loadingBarangays = false;
-
   static const _genders = ['Male', 'Female', 'Other'];
-  static const _yearsOptions = [
-    '6 months - 1 year',
-    '1 - 3 years',
-    '3 - 5 years',
-    '5+ years',
-  ];
 
-  @override
-  void initState() {
-    super.initState();
-    _loadMunicipalities(_bukidnonCode);
-  }
-
-  Future<void> _loadMunicipalities(String provinceCode) async {
-    setState(() {
-      _loadingMunicipalities = true;
-      _municipalities = [];
-      _selectedMunicipalityCode = null;
-      _selectedMunicipalityName = null;
-      _barangays = [];
-      _selectedBarangay = null;
-      _selectedPurok = null;
-    });
-    try {
-      final res = await http.get(
-        Uri.parse('$_psgcBase/provinces/$provinceCode/municipalities/'),
-      );
-      if (res.statusCode == 200) {
-        final List data = jsonDecode(res.body) as List;
-        final list = data
-            .map<Map<String, String>>((e) => {
-                  'code': e['code'].toString(),
-                  'name': e['name'].toString(),
-                })
-            .toList()
-          ..sort((a, b) => a['name']!.compareTo(b['name']!));
-        if (mounted) {
-          setState(() {
-            _municipalities = list;
-            _loadingMunicipalities = false;
-          });
-          // Default to Maramag
-          final maramag = list.firstWhere(
-            (m) => m['code'] == _maramagCode,
-            orElse: () => {},
-          );
-          if (maramag.isNotEmpty) {
-            await _loadBarangays(maramag['code']!, maramag['name']!);
-          }
-        }
-      }
-    } catch (_) {
-      if (mounted) setState(() => _loadingMunicipalities = false);
-    }
-  }
-
-  Future<void> _loadBarangays(String municipalityCode, String municipalityName) async {
-    setState(() {
-      _selectedMunicipalityCode = municipalityCode;
-      _selectedMunicipalityName = municipalityName;
-      _barangays = [];
-      _selectedBarangay = null;
-      _selectedPurok = null;
-      _loadingBarangays = true;
-    });
-    try {
-      final res = await http.get(
-        Uri.parse('$_psgcBase/municipalities/$municipalityCode/barangays/'),
-      );
-      if (res.statusCode == 200) {
-        final List data = jsonDecode(res.body) as List;
-        final list = data
-            .map<Map<String, String>>((e) => {
-                  'code': e['code'].toString(),
-                  'name': e['name'].toString(),
-                })
-            .toList()
-          ..sort((a, b) => a['name']!.compareTo(b['name']!));
-        if (mounted) {
-          setState(() {
-            _barangays = list;
-            _loadingBarangays = false;
-            // Default to Dologon when Maramag is selected
-            if (municipalityCode == _maramagCode) {
-              final dologon = list.firstWhere(
-                (b) => b['name']!.toUpperCase().contains('DOLOGON'),
-                orElse: () => {},
-              );
-              if (dologon.isNotEmpty) _selectedBarangay = dologon['name'];
-            }
-          });
-        }
-      }
-    } catch (_) {
-      if (mounted) setState(() => _loadingBarangays = false);
-    }
-  }
-
-  bool get _isDologon =>
-      _selectedBarangay != null &&
-      _selectedBarangay!.toUpperCase().contains('DOLOGON');
 
   @override
   void dispose() {
     _fullNameController.dispose();
     _houseStreetController.dispose();
     _ageController.dispose();
+    _yearsAtAddressController.dispose();
     _motherNameController.dispose();
     _fatherNameController.dispose();
     super.dispose();
@@ -184,8 +69,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
       if (_selectedPurok != null) _selectedPurok!,
       if (_houseStreetController.text.trim().isNotEmpty)
         _houseStreetController.text.trim(),
-      if (_selectedBarangay != null) 'Brgy. $_selectedBarangay',
-      if (_selectedMunicipalityName != null) _selectedMunicipalityName!,
+      'Brgy. $_fixedBarangay',
+      _fixedMunicipality,
       _provinceName,
     ];
     final address = parts.join(', ');
@@ -197,7 +82,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
         'address': address,
         'age': _ageController.text.trim(),
         'gender': _gender!,
-        'yearsAtAddress': _yearsAtAddress!,
+        'yearsAtAddress': _yearsAtAddressController.text.trim(),
         'motherName': _motherNameController.text.trim(),
         'fatherName': _fatherNameController.text.trim(),
       });
@@ -272,57 +157,23 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 _staticField(_provinceName),
                 const SizedBox(height: 14),
 
-                // Municipality — API dropdown (Bukidnon), default Maramag
-                _label('City / Municipality *'),
-                _loadingMunicipalities
-                    ? _loadingBox()
-                    : _apiDropdown(
-                        value: _selectedMunicipalityCode,
-                        hint: 'Select municipality',
-                        items: _municipalities,
-                        validator: (v) => v == null ? 'Required' : null,
-                        onChanged: (code) {
-                          if (code == null) return;
-                          final name = _municipalities.firstWhere(
-                              (m) => m['code'] == code,
-                              orElse: () => {})['name'];
-                          _loadBarangays(code, name ?? '');
-                        },
-                      ),
+                _label('City / Municipality'),
+                _staticField(_fixedMunicipality),
                 const SizedBox(height: 14),
 
-                // Barangay — API dropdown (cascades from municipality)
-                _label('Barangay *'),
-                _loadingBarangays
-                    ? _loadingBox()
-                    : _apiDropdown(
-                        value: _selectedBarangay,
-                        hint: _selectedMunicipalityCode == null
-                            ? 'Select municipality first'
-                            : 'Select barangay',
-                        items: _barangays
-                            .map((b) => {'code': b['name']!, 'name': b['name']!})
-                            .toList(),
-                        validator: (v) => v == null ? 'Required' : null,
-                        onChanged: (v) => setState(() {
-                          _selectedBarangay = v;
-                          _selectedPurok = null;
-                        }),
-                      ),
+                _label('Barangay'),
+                _staticField(_fixedBarangay),
                 const SizedBox(height: 14),
 
-                // Purok — shown when Dologon is selected
-                if (_isDologon) ...[
-                  _label('Purok *'),
-                  _simpleDropdown(
-                    value: _selectedPurok,
-                    hint: 'Select purok',
-                    items: _dologonPuroks,
-                    validator: (v) => v == null ? 'Required' : null,
-                    onChanged: (v) => setState(() => _selectedPurok = v),
-                  ),
-                  const SizedBox(height: 14),
-                ],
+                _label('Purok *'),
+                _simpleDropdown(
+                  value: _selectedPurok,
+                  hint: 'Select purok',
+                  items: _dologonPuroks,
+                  validator: (v) => v == null ? 'Required' : null,
+                  onChanged: (v) => setState(() => _selectedPurok = v),
+                ),
+                const SizedBox(height: 14),
 
                 // House / Street / Block (optional detail)
                 _label('House No. / Street (optional)'),
@@ -383,16 +234,24 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 const SizedBox(height: 14),
 
                 _label('Years at Address *'),
-                _simpleDropdown(
-                  value: _yearsAtAddress,
-                  hint: 'Select',
-                  items: _yearsOptions,
-                  onChanged: (v) => setState(() => _yearsAtAddress = v),
-                  validator: (v) => v == null ? 'Required' : null,
+                _textField(
+                  controller: _yearsAtAddressController,
+                  hint: 'e.g. 5',
+                  keyboardType: TextInputType.number,
+                  formatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(3),
+                  ],
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Required';
+                    final n = int.tryParse(v.trim());
+                    if (n == null || n < 0) return 'Enter a valid number';
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 14),
 
-                _label("Mother's Full Name *"),
+                _label("Full Mother's Maiden Name *"),
                 _textField(
                   controller: _motherNameController,
                   hint: 'Full name',

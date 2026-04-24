@@ -48,7 +48,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   String? _purpose;
   String? _deliveryMethod;
   final _detailsController = TextEditingController();
-  final _yearsAtAddressController = TextEditingController();
   bool _isLoading = false;
 
   @override
@@ -74,15 +73,13 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   @override
   void dispose() {
     _detailsController.dispose();
-    _yearsAtAddressController.dispose();
     super.dispose();
   }
 
   bool get _canProceed =>
       _docType != null &&
       _purpose != null &&
-      _deliveryMethod != null &&
-      _yearsAtAddressController.text.trim().isNotEmpty;
+      _deliveryMethod != null;
 
   // Shows payment bottom sheet — user confirms then pays via PayMongo
   void _showPaymentSheet() {
@@ -95,7 +92,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         purpose: _purpose!,
         additionalDetails: _detailsController.text.trim(),
         deliveryMethod: _deliveryMethod!,
-        yearsAtAddress: _yearsAtAddressController.text.trim(),
         pricePhp: _selectedPrice,
         onPaid: () {
           Navigator.pop(context); // close sheet
@@ -163,26 +159,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                 counterText: '$charCount / 500',
                 counterStyle:
                     const TextStyle(color: Colors.black38, fontSize: 11),
-                contentPadding: const EdgeInsets.all(16),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            _sectionLabel('Years at Address *'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _yearsAtAddressController,
-              keyboardType: TextInputType.number,
-              onChanged: (_) => setState(() {}),
-              style: const TextStyle(fontSize: 14, color: Colors.black87),
-              decoration: InputDecoration(
-                hintText: 'e.g. 5',
-                hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
-                filled: true,
-                fillColor: Colors.white,
                 contentPadding: const EdgeInsets.all(16),
                 border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -347,7 +323,6 @@ class _PaymentSheet extends StatefulWidget {
   final String purpose;
   final String additionalDetails;
   final String deliveryMethod;
-  final String yearsAtAddress;
   final double pricePhp;
   final VoidCallback onPaid;
 
@@ -356,7 +331,6 @@ class _PaymentSheet extends StatefulWidget {
     required this.purpose,
     required this.additionalDetails,
     required this.deliveryMethod,
-    required this.yearsAtAddress,
     required this.pricePhp,
     required this.onPaid,
   });
@@ -370,7 +344,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   static const Color _lime = Color(0xFF4CFF4C);
 
   _PayState _state = _PayState.idle;
-  String? _linkId;
+  String? _sessionId;
   String? _requestId;
   String? _checkoutUrl;
   String? _errorMsg;
@@ -388,23 +362,22 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     setState(() { _state = _PayState.creatingLink; _errorMsg = null; });
 
     try {
-      final result = await ApiService.createPaymentLink(
+      final result = await ApiService.createCheckoutSession(
         documentType: widget.documentType,
         purpose: widget.purpose,
         additionalDetails: widget.additionalDetails,
         deliveryMethod: widget.deliveryMethod,
-        yearsAtAddress: widget.yearsAtAddress,
       );
 
       if (result['statusCode'] != 201) {
         setState(() {
           _state = _PayState.error;
-          _errorMsg = result['message'] as String? ?? 'Failed to create payment link';
+          _errorMsg = result['message'] as String? ?? 'Failed to create checkout session';
         });
         return;
       }
 
-      _linkId = result['linkId'] as String;
+      _sessionId = result['sessionId'] as String;
       _requestId = result['requestId'] as String?;
       _checkoutUrl = result['checkoutUrl'] as String;
 
@@ -427,13 +400,11 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   Future<void> _devSkip() async {
     setState(() { _state = _PayState.creatingLink; _errorMsg = null; });
     try {
-      // Create the request record first, then immediately mark it paid
-      final result = await ApiService.createPaymentLink(
+      final result = await ApiService.createCheckoutSession(
         documentType: widget.documentType,
         purpose: widget.purpose,
         additionalDetails: widget.additionalDetails,
         deliveryMethod: widget.deliveryMethod,
-        yearsAtAddress: widget.yearsAtAddress,
       );
       if (result['statusCode'] != 201) {
         setState(() { _state = _PayState.error; _errorMsg = result['message'] as String? ?? 'Failed'; });
@@ -471,7 +442,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
 
       setState(() => _state = _PayState.polling);
       try {
-        final status = await ApiService.checkPaymentStatus(_linkId!);
+        final status = await ApiService.checkPaymentStatus(_sessionId!);
         if (status['paid'] == true) {
           _pollTimer?.cancel();
           if (mounted) setState(() => _state = _PayState.paid);

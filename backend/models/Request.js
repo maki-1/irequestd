@@ -27,10 +27,6 @@ const requestSchema = new mongoose.Schema(
       enum: ['Pick up at Barangay Office'],
       required: true,
     },
-    yearsAtAddress: {
-      type: String,
-      default: '',
-    },
     status: {
       type: String,
       enum: ['Pending', 'Processing', 'Ready', 'Rejected'],
@@ -41,7 +37,7 @@ const requestSchema = new mongoose.Schema(
       enum: ['unpaid', 'paid'],
       default: 'unpaid',
     },
-    paymentLinkId: { type: String, default: null },
+    paymentSessionId: { type: String, default: null },
     amountPaid: { type: Number, default: 0 }, // in centavos
   },
   { timestamps: true }

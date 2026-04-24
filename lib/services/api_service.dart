@@ -6,9 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
-  static const String _baseUrl = 'https://irequestd.onrender.com/api';
+  // static const String _baseUrl = 'https://irequestd.onrender.com/api';
   // static const String _baseUrl = 'http://10.0.2.2:5000/api'; // Android emulator
-  // static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web
+  static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web
 
   // ── Token helpers ────────────────────────────────────────────────────────────
 
@@ -335,24 +335,22 @@ class ApiService {
 
   // ── Payment endpoints ─────────────────────────────────────────────────────
 
-  /// Creates a PayMongo payment link + a pending request record.
-  /// Returns { checkoutUrl, linkId, requestId } on success.
-  static Future<Map<String, dynamic>> createPaymentLink({
+  /// Creates a PayMongo checkout session + a pending request record.
+  /// Returns { checkoutUrl, sessionId, requestId } on success.
+  static Future<Map<String, dynamic>> createCheckoutSession({
     required String documentType,
     required String purpose,
     String additionalDetails = '',
     required String deliveryMethod,
-    String yearsAtAddress = '',
   }) async {
     final res = await http.post(
-      Uri.parse('$_baseUrl/payment/create-link'),
+      Uri.parse('$_baseUrl/payment/create-session'),
       headers: await _authHeaders(),
       body: jsonEncode({
         'documentType': documentType,
         'purpose': purpose,
         'additionalDetails': additionalDetails,
         'deliveryMethod': deliveryMethod,
-        'yearsAtAddress': yearsAtAddress,
       }),
     );
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -369,11 +367,11 @@ class ApiService {
     return {'statusCode': res.statusCode, ...body};
   }
 
-  /// Polls whether a payment link has been paid.
+  /// Polls whether a checkout session has been paid.
   /// Returns { paid: bool, requestId: String }
-  static Future<Map<String, dynamic>> checkPaymentStatus(String linkId) async {
+  static Future<Map<String, dynamic>> checkPaymentStatus(String sessionId) async {
     final res = await http.get(
-      Uri.parse('$_baseUrl/payment/status/$linkId'),
+      Uri.parse('$_baseUrl/payment/status/$sessionId'),
       headers: await _authHeaders(),
     );
     final body = jsonDecode(res.body) as Map<String, dynamic>;

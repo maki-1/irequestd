@@ -4,11 +4,14 @@ const axios = require('axios');
 const crypto = require('crypto');
 const authMiddleware = require('../middleware/auth');
 const Request = require('../models/Request');
+const VerificationProfile = require('../models/VerificationProfile');
 
 const DocumentPrice = require('../models/DocumentPrice');
 
 const PAYMONGO_BASE = 'https://api.paymongo.com/v1';
 const FALLBACK_PRICE = parseInt(process.env.DOCUMENT_PRICE_CENTAVOS || '500', 10);
+
+const PAYMENT_METHOD_TYPES = ['gcash', 'paymaya', 'grab_pay', 'card'];
 
 async function getPriceCentavos(documentType) {
   const entry = await DocumentPrice.findOne({ documentType });
@@ -20,27 +23,45 @@ function paymongoAuth() {
   return `Basic ${Buffer.from(`${key}:`).toString('base64')}`;
 }
 
-// ── POST /api/payment/create-link ────────────────────────────────────────────
-// Creates a PayMongo payment link + a pending request record.
-// Returns { checkoutUrl, linkId, requestId }
-router.post('/create-link', authMiddleware, async (req, res) => {
+// ── POST /api/payment/create-session ────────────────────────────────────────
+// Creates a PayMongo checkout session + a pending request record.
+// Returns { checkoutUrl, sessionId, requestId }
+router.post('/create-session', authMiddleware, async (req, res) => {
   try {
-    const { documentType, purpose, additionalDetails, deliveryMethod, yearsAtAddress } = req.body;
+    const { documentType, purpose, additionalDetails, deliveryMethod } = req.body;
 
     if (!documentType || !purpose || !deliveryMethod) {
       return res.status(400).json({ message: 'Document type, purpose, and delivery method are required' });
     }
 
-    // 1. Create PayMongo payment link
+    const profile = await VerificationProfile.findOne({ user: req.user.id });
+    const yearsAtAddress = profile?.yearsAtAddress || '';
+
     const PRICE = await getPriceCentavos(documentType);
+    const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com';
+    const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://irequestd.onrender.com';
+
     const pmRes = await axios.post(
-      `${PAYMONGO_BASE}/links`,
+      `${PAYMONGO_BASE}/checkout_sessions`,
       {
         data: {
           attributes: {
-            amount: PRICE,
+            send_email_receipt: true,
+            show_description: true,
+            show_line_items: true,
+            line_items: [
+              {
+                currency: 'PHP',
+                amount: PRICE,
+                description: `${purpose}${additionalDetails ? ` — ${additionalDetails}` : ''}`,
+                name: documentType,
+                quantity: 1,
+              },
+            ],
+            payment_method_types: PAYMENT_METHOD_TYPES,
+            success_url: successUrl,
+            cancel_url: cancelUrl,
             description: `iRequestD — ${documentType}`,
-            remarks: `${purpose}${additionalDetails ? ` | ${additionalDetails}` : ''}`,
           },
         },
       },
@@ -52,43 +73,36 @@ router.post('/create-link', authMiddleware, async (req, res) => {
       }
     );
 
-    const linkData = pmRes.data.data;
-    const linkId = linkData.id;
-    const checkoutUrl = linkData.attributes.checkout_url;
+    const sessionData = pmRes.data.data;
+    const sessionId = sessionData.id;
+    const checkoutUrl = sessionData.attributes.checkout_url;
 
-    // 2. Create request record (paymentStatus: unpaid until webhook fires)
     const request = await Request.create({
       user: req.user.id,
       documentType,
       purpose,
       additionalDetails: additionalDetails || '',
       deliveryMethod,
-      yearsAtAddress: yearsAtAddress || '',
       paymentStatus: 'unpaid',
-      paymentLinkId: linkId,
+      paymentSessionId: sessionId,
       amountPaid: 0,
     });
 
-    res.status(201).json({
-      checkoutUrl,
-      linkId,
-      requestId: request._id,
-    });
+    res.status(201).json({ checkoutUrl, sessionId, requestId: request._id });
   } catch (err) {
-    console.error('PayMongo create-link error:', err?.response?.data || err.message);
-    res.status(500).json({ message: 'Failed to create payment link' });
+    console.error('PayMongo create-session error:', err?.response?.data || err.message);
+    res.status(500).json({ message: 'Failed to create checkout session' });
   }
 });
 
-// ── GET /api/payment/status/:linkId ─────────────────────────────────────────
-// Polls the PayMongo link status and syncs local request record.
-router.get('/status/:linkId', authMiddleware, async (req, res) => {
+// ── GET /api/payment/status/:sessionId ──────────────────────────────────────
+// Polls the PayMongo checkout session status and syncs local request record.
+router.get('/status/:sessionId', authMiddleware, async (req, res) => {
   try {
-    const { linkId } = req.params;
+    const { sessionId } = req.params;
 
-    // Check our DB first
     const request = await Request.findOne({
-      paymentLinkId: linkId,
+      paymentSessionId: sessionId,
       user: req.user.id,
     });
 
@@ -98,14 +112,17 @@ router.get('/status/:linkId', authMiddleware, async (req, res) => {
       return res.json({ paid: true, requestId: request._id });
     }
 
-    // Double-check directly with PayMongo
-    const pmRes = await axios.get(`${PAYMONGO_BASE}/links/${linkId}`, {
+    const pmRes = await axios.get(`${PAYMONGO_BASE}/checkout_sessions/${sessionId}`, {
       headers: { Authorization: paymongoAuth() },
     });
 
-    const linkStatus = pmRes.data.data.attributes.status;
+    const attrs = pmRes.data.data.attributes;
+    const sessionStatus = attrs.status;
+    const paymentIntentStatus = attrs.payment_intent?.attributes?.status;
 
-    if (linkStatus === 'paid') {
+    const isPaid = sessionStatus === 'completed' || paymentIntentStatus === 'succeeded';
+
+    if (isPaid) {
       const PRICE = await getPriceCentavos(request.documentType);
       request.paymentStatus = 'paid';
       request.amountPaid = PRICE;
@@ -121,18 +138,15 @@ router.get('/status/:linkId', authMiddleware, async (req, res) => {
 });
 
 // ── POST /api/payment/webhook ────────────────────────────────────────────────
-// PayMongo calls this when a link is paid.
-// Verify the signature, then mark the matching request as paid.
+// PayMongo calls this when a checkout session is paid.
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const webhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET || '';
 
-    // Signature verification (skip if secret not set — dev mode)
     if (webhookSecret) {
       const sigHeader = req.headers['paymongo-signature'];
       if (!sigHeader) return res.status(400).json({ message: 'Missing signature' });
 
-      // PayMongo signature format: t=<timestamp>,te=<test_sig>,li=<live_sig>
       const parts = Object.fromEntries(
         sigHeader.split(',').map((p) => p.split('='))
       );
@@ -152,13 +166,13 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     const body = JSON.parse(req.body.toString());
     const eventType = body?.data?.attributes?.type;
 
-    if (eventType === 'link.payment.paid') {
-      const linkId = body?.data?.attributes?.data?.attributes?.link_id;
-      if (linkId) {
-        const req_ = await Request.findOne({ paymentLinkId: linkId });
+    if (eventType === 'checkout_session.payment.paid') {
+      const sessionId = body?.data?.attributes?.data?.id;
+      if (sessionId) {
+        const req_ = await Request.findOne({ paymentSessionId: sessionId });
         const PRICE = req_ ? await getPriceCentavos(req_.documentType) : FALLBACK_PRICE;
         await Request.findOneAndUpdate(
-          { paymentLinkId: linkId },
+          { paymentSessionId: sessionId },
           { paymentStatus: 'paid', amountPaid: PRICE }
         );
       }
@@ -172,13 +186,11 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 });
 
 // ── POST /api/payment/dev-skip/:requestId ────────────────────────────────────
-// DEV ONLY — instantly marks a request as paid without PayMongo.
-// Remove or disable this before deploying to production.
 if (process.env.NODE_ENV !== 'production') {
   router.post('/dev-skip/:requestId', authMiddleware, async (req, res) => {
     const request = await Request.findOneAndUpdate(
       { _id: req.params.requestId, user: req.user.id },
-      { paymentStatus: 'paid', amountPaid: await getPriceCentavos(request?.documentType) },
+      { paymentStatus: 'paid', amountPaid: FALLBACK_PRICE },
       { new: true }
     );
     if (!request) return res.status(404).json({ message: 'Request not found' });
