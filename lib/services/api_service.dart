@@ -6,9 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
-  static const String _baseUrl = 'https://irequestd.onrender.com/api';
+  // static const String _baseUrl = 'https://irequestd.onrender.com/api';
   // static const String _baseUrl = 'http://10.0.2.2:5000/api'; // Android emulator
-  // static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web
+  static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web
 
   // ── Token helpers ────────────────────────────────────────────────────────────
 
@@ -92,18 +92,18 @@ class ApiService {
   }
 
   /// Fetches the latest user + account status from the server and refreshes local cache.
+  /// Returns null on auth error (401/403). Throws on network error — callers should
+  /// catch and fall back to [getUser] for offline/connection-loss scenarios.
   static Future<Map<String, dynamic>?> getMe() async {
-    try {
-      final res = await http.get(
-        Uri.parse('$_baseUrl/auth/me'),
-        headers: await _authHeaders(),
-      );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        await saveUser(data);
-        return data;
-      }
-    } catch (_) {}
+    final res = await http.get(
+      Uri.parse('$_baseUrl/auth/me'),
+      headers: await _authHeaders(),
+    );
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      await saveUser(data);
+      return data;
+    }
     return null;
   }
 
@@ -283,6 +283,28 @@ class ApiService {
       return jsonDecode(res.body) as List<dynamic>;
     }
     throw Exception('Failed to load requests');
+  }
+
+  static Future<List<dynamic>> fetchClaimedDocuments() async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/requests/claimed'),
+      headers: await _authHeaders(),
+    );
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as List<dynamic>;
+    }
+    throw Exception('Failed to load claimed documents');
+  }
+
+  static Future<List<dynamic>> fetchCompletedDocuments() async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/requests/completed'),
+      headers: await _authHeaders(),
+    );
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as List<dynamic>;
+    }
+    throw Exception('Failed to load completed documents');
   }
 
   static Future<Map<String, dynamic>> fetchSummary() async {

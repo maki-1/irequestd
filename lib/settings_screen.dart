@@ -26,6 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Uint8List? _localAvatar; // preview before upload
 
   bool _avatarUploading = false;
+  int _notifCount = 0;
 
   @override
   void initState() {
@@ -42,6 +43,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _email = user?['email'] as String? ?? '';
       _avatarFilename = user?['avatar'] as String? ?? '';
     });
+    try {
+      final summary = await ApiService.fetchSummary();
+      if (!mounted) return;
+      final active = (summary['pending'] as int? ?? 0) +
+          (summary['processing'] as int? ?? 0) +
+          (summary['ready'] as int? ?? 0);
+      setState(() => _notifCount = active);
+    } catch (_) {}
   }
 
   Future<void> _loadPrefs() async {
@@ -83,7 +92,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _avatarUploading = false;
       });
       // Refresh cached user
-      await ApiService.getMe();
+      try { await ApiService.getMe(); } catch (_) {}
       _showSnack('Profile photo updated!', isError: false);
     } else {
       setState(() {
@@ -269,6 +278,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                     ),
+                    if (_notifCount > 0)
+                      Positioned(
+                        top: 2,
+                        right: 2,
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: _green, width: 1.5),
+                          ),
+                          child: Text(
+                            _notifCount > 99 ? '99+' : '$_notifCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -336,11 +367,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _menuTile(
             icon: Icons.help_outline,
             title: 'Help & FAQ',
-            onTap: () {},
-          ),
-          _menuTile(
-            icon: Icons.support_agent_outlined,
-            title: 'Contact Support',
             onTap: () {},
           ),
           _menuTile(

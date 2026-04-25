@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'services/api_service.dart';
 import 'request_document_screen.dart';
 
@@ -9,28 +10,46 @@ class MyRequestsScreen extends StatefulWidget {
   State<MyRequestsScreen> createState() => _MyRequestsScreenState();
 }
 
-class _MyRequestsScreenState extends State<MyRequestsScreen> {
+class _MyRequestsScreenState extends State<MyRequestsScreen>
+    with SingleTickerProviderStateMixin {
   static const Color _green = Color(0xFF1A6B1A);
 
+  late final TabController _tabController;
   List<dynamic> _requests = [];
+  List<dynamic> _readyForPickup = [];
   bool _loading = true;
   String? _error;
+  Map<String, dynamic>? _cachedUser;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadRequests();
+    _loadUser();
+  }
+
+  Future<void> _loadUser() async {
+    final user = await ApiService.getUser();
+    if (mounted) setState(() => _cachedUser = user);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadRequests() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    setState(() { _loading = true; _error = null; });
     try {
-      final data = await ApiService.fetchRequests();
+      final results = await Future.wait([
+        ApiService.fetchRequests(),
+        ApiService.fetchCompletedDocuments(),
+      ]);
       if (mounted) setState(() {
-        _requests = data;
+        _requests = results[0];
+        _readyForPickup = results[1];
         _loading = false;
       });
     } catch (_) {
@@ -76,6 +95,8 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final pickupCount = _readyForPickup.length;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F4),
       appBar: AppBar(
@@ -83,23 +104,413 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
         elevation: 0,
         automaticallyImplyLeading: false,
         title: const Text('My Requests',
-            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            style: TextStyle(
+                color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: const Color(0xFF4CFF4C),
+          indicatorWeight: 3,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white60,
+          labelStyle:
+              const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          unselectedLabelStyle:
+              const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          tabs: [
+            const Tab(text: 'Requests'),
+            Tab(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Ready for Pickup'),
+                  if (pickupCount > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$pickupCount',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: _green))
-          : RefreshIndicator(
-              color: _green,
-              onRefresh: _loadRequests,
-              child: _requests.isEmpty
-                  ? _emptyState()
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _requests.length,
-                      itemBuilder: (_, i) =>
-                          _buildCard(_requests[i] as Map<String, dynamic>),
-                    ),
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                // ── Tab 1: Requests ───────────────────────────────────
+                RefreshIndicator(
+                  color: _green,
+                  onRefresh: _loadRequests,
+                  child: _requests.isEmpty
+                      ? _emptyState()
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _requests.length,
+                          itemBuilder: (_, i) =>
+                              _buildCard(_requests[i] as Map<String, dynamic>),
+                        ),
+                ),
+
+                // ── Tab 2: Ready for Pickup ───────────────────────────
+                RefreshIndicator(
+                  color: _green,
+                  onRefresh: _loadRequests,
+                  child: _readyForPickup.isEmpty
+                      ? _emptyPickup()
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _readyForPickup.length,
+                          itemBuilder: (_, i) => _buildPickupCard(
+                              _readyForPickup[i] as Map<String, dynamic>),
+                        ),
+                ),
+              ],
             ),
       bottomNavigationBar: _bottomNav(context, 1),
+    );
+  }
+
+  Widget _emptyPickup() => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(Icons.storefront_outlined, size: 56, color: Colors.black26),
+            SizedBox(height: 16),
+            Text('No documents ready for pickup',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black45)),
+            SizedBox(height: 8),
+            Text('You\'ll see your claim code here once\nyour document is ready.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.black38, fontSize: 13)),
+          ],
+        ),
+      );
+
+  Widget _sectionHeader(String text, {Color color = Colors.black45}) => Padding(
+        padding: const EdgeInsets.only(left: 2, bottom: 2),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: color,
+                letterSpacing: 1.2)),
+      );
+
+  void _showPickupDetail(Map<String, dynamic> d) {
+    final docType    = d['documentType'] as String? ?? '—';
+    final claimCode  = d['claimCode']    as String? ?? '—';
+    final fullName   = d['fullName']     as String? ?? '—';
+    final avatarFile = _cachedUser?['avatar'] as String? ?? '';
+    final avatarUrl  = ApiService.avatarUrl(avatarFile);
+
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Avatar
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: const Color(0xFFE8F5E9),
+                backgroundImage:
+                    avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                child: avatarUrl.isEmpty
+                    ? Text(
+                        fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
+                        style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1A6B1A)),
+                      )
+                    : null,
+              ),
+              const SizedBox(height: 12),
+
+              // Full name
+              Text(fullName,
+                  style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black87)),
+
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 12),
+
+              // Document requested
+              _detailRow(Icons.description_outlined, 'Document', docType),
+              const SizedBox(height: 12),
+
+              // Claim code box
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5E9),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: const Color(0xFF1A6B1A), width: 1.2),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('CLAIM CODE',
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1A6B1A),
+                            letterSpacing: 1.5)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(claimCode,
+                              style: const TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF1A6B1A),
+                                  letterSpacing: 4)),
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            Clipboard.setData(
+                                ClipboardData(text: claimCode));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Claim code copied!'),
+                                duration: Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1A6B1A)
+                                  .withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.copy_outlined,
+                                size: 18, color: Color(0xFF1A6B1A)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1A6B1A),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    elevation: 0,
+                  ),
+                  child: const Text('Close',
+                      style: TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Colors.black45),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.black38,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8)),
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87)),
+            ],
+          ),
+        ],
+      );
+
+  Widget _buildPickupCard(Map<String, dynamic> d) {
+    final docType = d['documentType'] as String? ?? '—';
+    final claimCode = d['claimCode'] as String? ?? '';
+    final completedAt = d['completedAt'] != null
+        ? _formatDate(d['completedAt'] as String)
+        : (d['createdAt'] != null ? _formatDate(d['createdAt'] as String) : '');
+
+    return GestureDetector(
+      onTap: () => _showPickupDetail(d),
+      child: Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F5E9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.green, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.green.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(_docIcon(docType),
+                      color: Colors.green, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(docType,
+                          style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black87)),
+                      if (completedAt.isNotEmpty)
+                        Text('Completed: $completedAt',
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.black45)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.storefront_outlined,
+                          size: 12, color: Colors.green),
+                      SizedBox(width: 4),
+                      Text('Ready',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.green)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Divider(height: 1, color: Color(0xFFC8E6C9)),
+            const SizedBox(height: 14),
+
+            // Claim code
+            const Text('CLAIM CODE',
+                style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.green,
+                    letterSpacing: 1.5)),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    claimCode.isNotEmpty ? claimCode : '—',
+                    style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF1A6B1A),
+                        letterSpacing: 5),
+                  ),
+                ),
+                if (claimCode.isNotEmpty)
+                  GestureDetector(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: claimCode));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Claim code copied!'),
+                          duration: Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.copy_outlined,
+                          size: 18, color: Colors.green),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Show this code to the barangay secretary to claim your document.',
+              style: TextStyle(
+                  fontSize: 11, color: Color(0xFF2E7D32), height: 1.4),
+            ),
+          ],
+        ),
+      ),
+      ),
     );
   }
 
@@ -215,25 +626,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
             ],
 
             // Action row
-            if (status == 'Ready') ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.download_outlined, size: 16),
-                  label: const Text('Download Document',
-                      style: TextStyle(fontSize: 13)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _green,
-                    side: const BorderSide(color: Color(0xFF1A6B1A)),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(28)),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
-                ),
-              ),
-            ] else if (status == 'Processing') ...[
+            if (status == 'Processing') ...[
               const SizedBox(height: 8),
               Row(
                 children: const [

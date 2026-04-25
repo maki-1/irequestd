@@ -48,7 +48,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
 
   String? _selectedPurok;
 
-  static const _genders = ['Male', 'Female', 'Other'];
+  static const _genders = ['Male', 'Female'];
 
 
   @override
@@ -204,8 +204,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
                             validator: (v) {
                               final n = int.tryParse(v ?? '');
                               if (n == null) return 'Required';
-                              if (n < 18) return 'Must be 18+';
-                              if (n > 120) return 'Invalid';
+                              if (n < 1 || n > 120) return 'Invalid age';
                               return null;
                             },
                           ),

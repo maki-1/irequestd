@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
+import 'services/notification_service.dart';
 import 'signup_screen.dart';
 import 'dashboard_screen.dart';
 import 'settings_screen.dart';
@@ -12,6 +13,7 @@ import 'verification/verification_waiting_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.init();
   final prefs = await SharedPreferences.getInstance();
   final seenOnboarding = prefs.getBool('seen_onboarding') ?? false;
 
@@ -23,15 +25,27 @@ void main() async {
     homeScreen = const OnboardingScreen();
   } else if (token != null) {
     // Resume session — fetch latest user state from server
-    final user = await ApiService.getMe();
-    if (user != null) {
-      final status = user['accountStatus'] as String?;
-      final step = user['verificationStep'] as int? ?? 1;
-      homeScreen = _resolveHome(status, step);
-    } else {
-      // Token invalid/expired — clear and show login
-      await ApiService.clearSession();
-      homeScreen = const LoginScreen();
+    try {
+      final user = await ApiService.getMe();
+      if (user != null) {
+        final status = user['accountStatus'] as String?;
+        final step = user['verificationStep'] as int? ?? 1;
+        homeScreen = _resolveHome(status, step);
+      } else {
+        // Server rejected token (auth error) — clear and show login
+        await ApiService.clearSession();
+        homeScreen = const LoginScreen();
+      }
+    } catch (_) {
+      // Network unreachable — resume from last known step in cache
+      final cached = await ApiService.getUser();
+      if (cached != null) {
+        final status = cached['accountStatus'] as String?;
+        final step = cached['verificationStep'] as int? ?? 1;
+        homeScreen = _resolveHome(status, step);
+      } else {
+        homeScreen = const LoginScreen();
+      }
     }
   } else {
     homeScreen = const LoginScreen();
