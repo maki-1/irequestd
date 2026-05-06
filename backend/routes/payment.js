@@ -38,8 +38,8 @@ router.post('/create-session', authMiddleware, async (req, res) => {
     const yearsAtAddress = profile?.yearsAtAddress || '';
 
     const PRICE = await getPriceCentavos(documentType);
-    const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com';
-    const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://irequestd.onrender.com';
+    const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
+    const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://irequestd.onrender.com/payment/cancel';
 
     const pmRes = await axios.post(
       `${PAYMONGO_BASE}/checkout_sessions`,

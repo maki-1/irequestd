@@ -39,8 +39,19 @@ const requestSchema = new mongoose.Schema(
     },
     paymentSessionId: { type: String, default: null },
     amountPaid: { type: Number, default: 0 }, // in centavos
+    orNumber: { type: String, unique: true, sparse: true },
   },
   { timestamps: true }
 );
+
+// Auto-generate OR number before first save
+requestSchema.pre('save', async function (next) {
+  if (!this.orNumber) {
+    const count = await this.constructor.countDocuments();
+    const year = new Date().getFullYear();
+    this.orNumber = `OR-${year}-${String(count + 1).padStart(5, '0')}`;
+  }
+  next();
+});
 
 module.exports = mongoose.model('Request', requestSchema);

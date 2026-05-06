@@ -81,27 +81,61 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
       _purpose != null &&
       _deliveryMethod != null;
 
-  // Shows payment bottom sheet — user confirms then pays via PayMongo
-  void _showPaymentSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _PaymentSheet(
+  Future<void> _submitFree() async {
+    setState(() => _isLoading = true);
+    try {
+      final result = await ApiService.createRequest(
         documentType: _docType!,
         purpose: _purpose!,
         additionalDetails: _detailsController.text.trim(),
         deliveryMethod: _deliveryMethod!,
-        pricePhp: _selectedPrice,
-        onPaid: () {
-          Navigator.pop(context); // close sheet
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const MyRequestsScreen()),
-          );
-        },
-      ),
-    );
+      );
+      if (!mounted) return;
+      if (result['statusCode'] == 201) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MyRequestsScreen()),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message'] as String? ?? 'Failed to submit request')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Connection error. Please try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _onProceed() {
+    if (_selectedPrice == 0) {
+      _submitFree();
+    } else {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _PaymentSheet(
+          documentType: _docType!,
+          purpose: _purpose!,
+          additionalDetails: _detailsController.text.trim(),
+          deliveryMethod: _deliveryMethod!,
+          pricePhp: _selectedPrice,
+          onPaid: () {
+            Navigator.pop(context); // close sheet
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const MyRequestsScreen()),
+            );
+          },
+        ),
+      );
+    }
   }
 
   @override
@@ -207,11 +241,16 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
               width: double.infinity,
               height: 54,
               child: ElevatedButton.icon(
-                onPressed: (_canProceed && !_isLoading) ? _showPaymentSheet : null,
-                icon: const Icon(Icons.payment_rounded),
-                label: Text('Proceed to Payment  ₱${_selectedPrice.toStringAsFixed(2)}',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                onPressed: (_canProceed && !_isLoading) ? _onProceed : null,
+                icon: Icon(_selectedPrice == 0
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.payment_rounded),
+                label: Text(
+                  _selectedPrice == 0
+                      ? 'Submit Request'
+                      : 'Proceed to Payment  ₱${_selectedPrice.toStringAsFixed(2)}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _canProceed ? _green : Colors.black12,
                   foregroundColor: Colors.white,
@@ -397,33 +436,6 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     }
   }
 
-  Future<void> _devSkip() async {
-    setState(() { _state = _PayState.creatingLink; _errorMsg = null; });
-    try {
-      final result = await ApiService.createCheckoutSession(
-        documentType: widget.documentType,
-        purpose: widget.purpose,
-        additionalDetails: widget.additionalDetails,
-        deliveryMethod: widget.deliveryMethod,
-      );
-      if (result['statusCode'] != 201) {
-        setState(() { _state = _PayState.error; _errorMsg = result['message'] as String? ?? 'Failed'; });
-        return;
-      }
-      _requestId = result['requestId'] as String;
-      final skip = await ApiService.devSkipPayment(_requestId!);
-      if (skip['paid'] == true) {
-        setState(() => _state = _PayState.paid);
-        await Future.delayed(const Duration(milliseconds: 800));
-        if (mounted) widget.onPaid();
-      } else {
-        setState(() { _state = _PayState.error; _errorMsg = 'Dev skip failed.'; });
-      }
-    } catch (_) {
-      setState(() { _state = _PayState.error; _errorMsg = 'Connection error.'; });
-    }
-  }
-
   void _startPolling() {
     _pollCount = 0;
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
@@ -527,41 +539,20 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   Widget _buildStateContent() {
     switch (_state) {
       case _PayState.idle:
-        return Column(
-          children: [
-            SizedBox(
-              width: double.infinity,
-              height: 54,
-              child: ElevatedButton.icon(
-                onPressed: _createLinkAndPay,
-                icon: const Icon(Icons.open_in_browser_rounded),
-                label: const Text('Pay ₱5.00 via PayMongo',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _green,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
-                ),
-              ),
+        return SizedBox(
+          width: double.infinity,
+          height: 54,
+          child: ElevatedButton.icon(
+            onPressed: _createLinkAndPay,
+            icon: const Icon(Icons.open_in_browser_rounded),
+            label: const Text('Pay via PayMongo',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _green,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
             ),
-            const SizedBox(height: 10),
-            // DEV ONLY — remove before production
-            SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: OutlinedButton.icon(
-                onPressed: _devSkip,
-                icon: const Icon(Icons.developer_mode_rounded, size: 18),
-                label: const Text('[DEV] Skip Payment',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.orange,
-                  side: const BorderSide(color: Colors.orange),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
-                ),
-              ),
-            ),
-          ],
+          ),
         );
 
       case _PayState.creatingLink:
