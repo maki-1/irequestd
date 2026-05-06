@@ -90,6 +90,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await prefs.setStringList('read_notif_ids', _readNotifIds.toList());
   }
 
+  Future<void> _markAllAsRead() async {
+    final allIds = [
+      ..._readyForPickup.map((d) => (d as Map)['_id']?.toString() ?? ''),
+      ..._claimedDocuments.map((d) => (d as Map)['_id']?.toString() ?? ''),
+      ..._requests.map((r) => (r as Map)['_id']?.toString() ?? ''),
+    ].where((id) => id.isNotEmpty).toSet();
+    setState(() => _readNotifIds.addAll(allIds));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('read_notif_ids', _readNotifIds.toList());
+  }
+
   Future<void> _fireOsNotifications({
     required List<dynamic> pickup,
     required List<dynamic> claimed,
@@ -736,7 +747,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: TextStyle(
                             fontSize: 17, fontWeight: FontWeight.w700)),
                     const Spacer(),
-                    if (_notifCount > 0)
+                    if (_notifCount > 0) ...[
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 3),
@@ -750,6 +761,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700)),
                       ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _markAllAsRead,
+                        child: const Text('Clear all',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF1A6B1A),
+                                fontWeight: FontWeight.w600)),
+                      ),
+                    ],
                   ],
                 ),
               ),
