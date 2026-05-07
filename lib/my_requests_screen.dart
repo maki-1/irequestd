@@ -238,13 +238,8 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                 backgroundImage:
                     avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
                 child: avatarUrl.isEmpty
-                    ? Text(
-                        fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
-                        style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A6B1A)),
-                      )
+                    ? const Icon(Icons.person_rounded,
+                        color: Color(0xFF1A6B1A), size: 44)
                     : null,
               ),
               const SizedBox(height: 12),

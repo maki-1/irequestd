@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import '../services/azure_face_service.dart';
 import 'step_progress_bar.dart';
 import 'id_verification_screen.dart';
 
@@ -121,9 +120,10 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
   Future<int?> _captureFaceWidth() async {
     try {
       final photo = await _ctrl!.takePicture();
-      final bytes = await photo.readAsBytes();
-      final w = await AzureFaceService.detectFaceWidth(bytes);
-      return w;
+      final inputImage = InputImage.fromFilePath(photo.path);
+      final faces = await _faceDetector.processImage(inputImage);
+      if (faces.isEmpty) return null;
+      return faces.first.boundingBox.width.toInt();
     } catch (_) {
       return null;
     }
@@ -181,10 +181,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
     if (!mounted) return;
     setState(() => _step = _LivenessStep.verifying);
 
-    final photo = await _ctrl!.takePicture();
-    final bytes = await photo.readAsBytes();
-
-    final w = await AzureFaceService.detectFaceWidth(bytes);
+    final w = await _captureFaceWidth();
     if (!mounted) return;
 
     if (w == null) {

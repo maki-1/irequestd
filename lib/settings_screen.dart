@@ -239,16 +239,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ? NetworkImage(avatarUrl)
                                 : null),
                         child: (_localAvatar == null && avatarUrl.isEmpty)
-                            ? Text(
-                                _username.isEmpty
-                                    ? '?'
-                                    : _username[0].toUpperCase(),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 38,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              )
+                            ? const Icon(Icons.person_rounded,
+                                color: Colors.white, size: 52)
                             : null,
                       ),
                     ),
