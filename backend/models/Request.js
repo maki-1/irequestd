@@ -1,5 +1,11 @@
 const mongoose = require('mongoose');
 
+const counterSchema = new mongoose.Schema({
+  _id: String,
+  seq: { type: Number, default: 0 },
+});
+const Counter = mongoose.models.Counter || mongoose.model('Counter', counterSchema);
+
 const requestSchema = new mongoose.Schema(
   {
     user: {
@@ -45,12 +51,16 @@ const requestSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Auto-generate OR number before first save
+// Auto-generate OR number before first save using an atomic counter to avoid race conditions
 requestSchema.pre('save', async function (next) {
   if (!this.orNumber) {
-    const count = await this.constructor.countDocuments();
     const year = new Date().getFullYear();
-    this.orNumber = `OR-${year}-${String(count + 1).padStart(5, '0')}`;
+    const counter = await Counter.findOneAndUpdate(
+      { _id: `orNumber-${year}` },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+    this.orNumber = `OR-${year}-${String(counter.seq).padStart(5, '0')}`;
   }
   next();
 });
