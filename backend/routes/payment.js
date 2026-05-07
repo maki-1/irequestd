@@ -85,7 +85,7 @@ router.post('/create-session', authMiddleware, async (req, res) => {
       deliveryMethod,
       paymentStatus: 'unpaid',
       paymentSessionId: sessionId,
-      amountPaid: 0,
+      amountPaid: 0, // stored in pesos
     });
 
     res.status(201).json({ checkoutUrl, sessionId, requestId: request._id });
@@ -125,7 +125,7 @@ router.get('/status/:sessionId', authMiddleware, async (req, res) => {
     if (isPaid) {
       const PRICE = await getPriceCentavos(request.documentType);
       request.paymentStatus = 'paid';
-      request.amountPaid = PRICE;
+      request.amountPaid = PRICE / 100;
       await request.save();
       return res.json({ paid: true, requestId: request._id });
     }
@@ -173,7 +173,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const PRICE = req_ ? await getPriceCentavos(req_.documentType) : FALLBACK_PRICE;
         await Request.findOneAndUpdate(
           { paymentSessionId: sessionId },
-          { paymentStatus: 'paid', amountPaid: PRICE }
+          { paymentStatus: 'paid', amountPaid: PRICE / 100 }
         );
       }
     }
@@ -190,7 +190,7 @@ if (process.env.NODE_ENV !== 'production') {
   router.post('/dev-skip/:requestId', authMiddleware, async (req, res) => {
     const request = await Request.findOneAndUpdate(
       { _id: req.params.requestId, user: req.user.id },
-      { paymentStatus: 'paid', amountPaid: FALLBACK_PRICE },
+      { paymentStatus: 'paid', amountPaid: FALLBACK_PRICE / 100 },
       { new: true }
     );
     if (!request) return res.status(404).json({ message: 'Request not found' });

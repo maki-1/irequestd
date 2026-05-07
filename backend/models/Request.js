@@ -38,7 +38,7 @@ const requestSchema = new mongoose.Schema(
       default: 'unpaid',
     },
     paymentSessionId: { type: String, default: null },
-    amountPaid: { type: Number, default: 0 }, // in centavos
+    amountPaid: { type: Number, default: 0 }, // in pesos (PHP)
     orNumber: { type: String, unique: true, sparse: true },
   },
   { timestamps: true }
