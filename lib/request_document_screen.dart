@@ -75,7 +75,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
 
     if (!mounted) return;
 
-    final list = results[0] as List<Map<String, dynamic>>;
+    final list = (results[0] as List).cast<Map<String, dynamic>>();
     final user = results[1] as Map<String, dynamic>?;
 
     bool eligible = false;
