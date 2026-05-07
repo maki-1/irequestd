@@ -18,6 +18,8 @@ const verificationProfileSchema = new mongoose.Schema(
     fatherName: { type: String, default: '' },
     isPwd: { type: Boolean, default: false },
 
+    freeProofDocument: { type: String, default: '' }, // Cloudinary URL: PSA / Senior Citizen ID / PWD ID
+
     // Step 2 – Education
     educationLevel: { type: String, default: '' },
     school: { type: String, default: '' },

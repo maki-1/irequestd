@@ -67,6 +67,7 @@ router.get('/me', authMiddleware, async (req, res) => {
       verificationStep: profile?.currentStep || 1,
       isPwd: profile?.isPwd || false,
       age: profile?.age || null,
+      hasFreeProof: !!(profile?.freeProofDocument),
     });
   } catch (err) {
     console.error(err);

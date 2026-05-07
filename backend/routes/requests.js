@@ -3,6 +3,7 @@ const router = express.Router();
 const authMiddleware = require('../middleware/auth');
 const Request = require('../models/Request');
 const CompletedDocument = require('../models/CompletedDocument');
+const VerificationProfile = require('../models/VerificationProfile');
 const { uploadFreeProof } = require('../config/cloudinary');
 
 router.use(authMiddleware);
@@ -42,13 +43,20 @@ router.post('/', uploadFreeProof.single('freeDocumentProof'), async (req, res) =
     if (!documentType || !purpose || !deliveryMethod) {
       return res.status(400).json({ message: 'Document type, purpose, and delivery method are required' });
     }
+
+    let proofUrl = req.file?.path || '';
+    if (!proofUrl) {
+      const profile = await VerificationProfile.findOne({ user: req.user.id });
+      proofUrl = profile?.freeProofDocument || '';
+    }
+
     const request = await Request.create({
       user: req.user.id,
       documentType,
       purpose,
       additionalDetails: additionalDetails || '',
       deliveryMethod,
-      freeDocumentProof: req.file?.path || '',
+      freeDocumentProof: proofUrl,
     });
     res.status(201).json(request);
   } catch (err) {
@@ -106,7 +114,11 @@ router.post('/bulk', uploadFreeProof.single('freeDocumentProof'), async (req, re
       return res.status(400).json({ message: 'At least one document item is required' });
     }
 
-    const proofUrl = req.file?.path || '';
+    let proofUrl = req.file?.path || '';
+    if (!proofUrl) {
+      const profile = await VerificationProfile.findOne({ user: req.user.id });
+      proofUrl = profile?.freeProofDocument || '';
+    }
 
     const requests = await Promise.all(items.map((item) =>
       Request.create({

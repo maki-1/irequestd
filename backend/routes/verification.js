@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
 const VerificationProfile = require('../models/VerificationProfile');
-const { uploadIdDoc, uploadFace } = require('../config/cloudinary');
+const { uploadIdDoc, uploadFace, uploadFreeProof } = require('../config/cloudinary');
 
 router.use(authMiddleware);
 
@@ -24,7 +24,7 @@ router.get('/status', async (req, res) => {
 });
 
 // ── POST /api/verification/step1 ──────────────────────────────────────────────
-router.post('/step1', async (req, res) => {
+router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, res) => {
   try {
     const { fullName, address, age, gender, yearsAtAddress, motherName, fatherName, isPwd } =
       req.body;
@@ -33,20 +33,24 @@ router.post('/step1', async (req, res) => {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
+    const updateData = {
+      user: req.user.id,
+      fullName: fullName.trim(),
+      address: address.trim(),
+      age: parseInt(age),
+      gender,
+      yearsAtAddress,
+      motherName: motherName.trim(),
+      fatherName: fatherName.trim(),
+      isPwd: isPwd === true || isPwd === 'true',
+      currentStep: 2,
+    };
+
+    if (req.file) updateData.freeProofDocument = req.file.path;
+
     const profile = await VerificationProfile.findOneAndUpdate(
       { user: req.user.id },
-      {
-        user: req.user.id,
-        fullName: fullName.trim(),
-        address: address.trim(),
-        age: parseInt(age),
-        gender,
-        yearsAtAddress,
-        motherName: motherName.trim(),
-        fatherName: fatherName.trim(),
-        isPwd: isPwd === true || isPwd === 'true',
-        currentStep: 2,
-      },
+      updateData,
       { upsert: true, new: true }
     );
 

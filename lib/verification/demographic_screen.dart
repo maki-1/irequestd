@@ -45,8 +45,11 @@ class _DemographicScreenState extends State<DemographicScreen> {
 
   String? _gender;
   String? _pwdStatus;
-  XFile? _pwdIdFile;
-  Uint8List? _pwdIdBytes;
+
+  // Unified proof document — PWD ID, PSA Birth Cert, or Senior Citizen Card
+  XFile? _proofFile;
+  Uint8List? _proofBytes;
+
   bool _isLoading = false;
   bool _agreedToTerms = false;
 
@@ -56,6 +59,26 @@ class _DemographicScreenState extends State<DemographicScreen> {
 
   static const _genders = ['Male', 'Female'];
 
+
+  int? get _ageInt => int.tryParse(_ageController.text.trim());
+
+  bool get _proofRequired =>
+      _pwdStatus == 'Yes' ||
+      (_ageInt != null && _ageInt! < 18) ||
+      (_ageInt != null && _ageInt! >= 60);
+
+  String get _proofLabel {
+    if (_pwdStatus == 'Yes') return 'PWD ID';
+    if (_ageInt != null && _ageInt! < 18) return 'PSA Birth Certificate';
+    if (_ageInt != null && _ageInt! >= 60) return 'Senior Citizen ID';
+    return '';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _ageController.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
@@ -81,24 +104,27 @@ class _DemographicScreenState extends State<DemographicScreen> {
     ];
     final address = parts.join(', ');
 
-    if (_pwdStatus == 'Yes' && _pwdIdFile == null) {
-      _showError('Please attach your PWD ID.');
+    if (_proofRequired && _proofFile == null) {
+      _showError('Please attach your $_proofLabel.');
       return;
     }
 
     setState(() => _isLoading = true);
     try {
-      final result = await ApiService.submitStep1({
-        'fullName': _fullNameController.text.trim(),
-        'address': address,
-        'age': _ageController.text.trim(),
-        'gender': _gender!,
-        'yearsAtAddress': _yearsAtAddressController.text.trim(),
-        'motherName': _motherNameController.text.trim(),
-        'fatherName': _fatherNameController.text.trim(),
-        'isPwd': _pwdStatus == 'Yes',
-        'pwdIdAttached': _pwdIdFile != null,
-      });
+      final result = await ApiService.submitStep1(
+        {
+          'fullName': _fullNameController.text.trim(),
+          'address': address,
+          'age': _ageController.text.trim(),
+          'gender': _gender!,
+          'yearsAtAddress': _yearsAtAddressController.text.trim(),
+          'motherName': _motherNameController.text.trim(),
+          'fatherName': _fatherNameController.text.trim(),
+          'isPwd': _pwdStatus == 'Yes',
+        },
+        proofBytes: _proofBytes,
+        proofFileName: _proofFile?.name,
+      );
 
       if (!mounted) return;
 
@@ -117,7 +143,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
     }
   }
 
-  Future<void> _pickPwdId() async {
+  Future<void> _pickProofDocument() async {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -128,8 +154,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 12),
-            const Text('Upload PWD ID',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text('Upload $_proofLabel',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
             ListTile(
               leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF1A6B1A)),
@@ -138,7 +164,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 Navigator.pop(context);
                 final file = await ImagePicker()
                     .pickImage(source: ImageSource.camera, imageQuality: 85);
-                if (file != null) _checkAndSetPwdFile(file);
+                if (file != null) _setProofFile(file);
               },
             ),
             ListTile(
@@ -148,7 +174,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 Navigator.pop(context);
                 final file = await ImagePicker()
                     .pickImage(source: ImageSource.gallery, imageQuality: 85);
-                if (file != null) _checkAndSetPwdFile(file);
+                if (file != null) _setProofFile(file);
               },
             ),
             const SizedBox(height: 8),
@@ -158,7 +184,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
     );
   }
 
-  Future<void> _checkAndSetPwdFile(XFile file) async {
+  Future<void> _setProofFile(XFile file) async {
     final bytes = await file.readAsBytes();
     if (bytes.length > 5 * 1024 * 1024) {
       if (mounted) {
@@ -171,48 +197,62 @@ class _DemographicScreenState extends State<DemographicScreen> {
       return;
     }
     setState(() {
-      _pwdIdFile = file;
-      _pwdIdBytes = bytes;
+      _proofFile = file;
+      _proofBytes = bytes;
     });
   }
 
-  Widget _buildPwdIdUpload() {
+  Widget _buildProofUpload() {
     return GestureDetector(
-      onTap: _pickPwdId,
+      onTap: _pickProofDocument,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.12),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white30, width: 1.5),
+          border: Border.all(
+            color: _proofFile != null ? const Color(0xFF4CFF4C) : Colors.white30,
+            width: 1.5,
+          ),
         ),
-        child: _pwdIdFile == null
-            ? const Column(
+        child: _proofFile == null
+            ? Column(
                 children: [
-                  Icon(Icons.upload_file_rounded, color: Colors.white54, size: 36),
-                  SizedBox(height: 8),
-                  Text('Tap to upload PWD ID',
-                      style: TextStyle(color: Colors.white70, fontSize: 13)),
-                  SizedBox(height: 4),
-                  Text('JPG, PNG  •  Max 5MB',
+                  const Icon(Icons.upload_file_rounded, color: Colors.white54, size: 36),
+                  const SizedBox(height: 8),
+                  Text('Tap to upload $_proofLabel',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  const SizedBox(height: 4),
+                  const Text('JPG, PNG  •  Max 5MB',
                       style: TextStyle(color: Colors.white38, fontSize: 11)),
                 ],
               )
             : Column(
                 children: [
-                  if (_pwdIdBytes != null)
+                  if (_proofBytes != null)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.memory(_pwdIdBytes!, height: 100, fit: BoxFit.cover),
+                      child: Image.memory(_proofBytes!, height: 100, fit: BoxFit.cover),
                     ),
                   const SizedBox(height: 8),
-                  Text(_pwdIdFile!.name,
-                      style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.check_circle_rounded,
+                          size: 14, color: Color(0xFF4CFF4C)),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(_proofFile!.name,
+                            style: const TextStyle(color: Colors.white70, fontSize: 12),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
                   TextButton.icon(
                     onPressed: () => setState(() {
-                      _pwdIdFile = null;
-                      _pwdIdBytes = null;
+                      _proofFile = null;
+                      _proofBytes = null;
                     }),
                     icon: const Icon(Icons.close, size: 14, color: Colors.redAccent),
                     label: const Text('Remove',
@@ -221,6 +261,22 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 ],
               ),
       ),
+    );
+  }
+
+  Widget _buildProofHint() {
+    String hint;
+    if (_pwdStatus == 'Yes') {
+      hint = 'Upload a clear photo of your PWD ID. This will be used when requesting free documents.';
+    } else if (_ageInt != null && _ageInt! < 18) {
+      hint = 'As a minor, upload your PSA Birth Certificate. You only need to do this once.';
+    } else {
+      hint = 'As a Senior Citizen (60+), upload your Senior Citizen ID. You only need to do this once.';
+    }
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(hint,
+          style: const TextStyle(color: Colors.white54, fontSize: 11.5, height: 1.4)),
     );
   }
 
@@ -377,17 +433,23 @@ class _DemographicScreenState extends State<DemographicScreen> {
                   items: const ['Yes', 'No'],
                   onChanged: (v) => setState(() {
                     _pwdStatus = v;
-                    if (v != 'Yes') {
-                      _pwdIdFile = null;
-                      _pwdIdBytes = null;
+                    // Clear proof if no longer required
+                    if (!_proofRequired) {
+                      _proofFile = null;
+                      _proofBytes = null;
                     }
                   }),
                   validator: (v) => v == null ? 'Required' : null,
                 ),
                 const SizedBox(height: 14),
-                if (_pwdStatus == 'Yes') ...[
-                  _label('PWD ID (required)'),
-                  _buildPwdIdUpload(),
+
+                // Proof document upload — shown for PWD, Minor, or Senior
+                if (_proofRequired) ...[
+                  _label('$_proofLabel (required) *'),
+                  const SizedBox(height: 2),
+                  _buildProofHint(),
+                  const SizedBox(height: 8),
+                  _buildProofUpload(),
                   const SizedBox(height: 14),
                 ],
 

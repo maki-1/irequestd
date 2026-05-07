@@ -23,6 +23,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
 
   bool _isFreeEligible = false;
   String _freeReason = '';
+  bool _hasProofOnFile = false;
 
   XFile? _proofFile;
   Uint8List? _proofBytes;
@@ -103,6 +104,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
       };
       _isFreeEligible = eligible;
       _freeReason = reason;
+      _hasProofOnFile = user?['hasFreeProof'] == true;
     });
   }
 
@@ -118,7 +120,8 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   }
 
   bool get _proofRequired =>
-      _freeReason == 'Minor' || _freeReason == 'Senior Citizen';
+      (_freeReason == 'Minor' || _freeReason == 'Senior Citizen') &&
+      !_hasProofOnFile;
 
   bool get _canProceed =>
       _selectedDocs.isNotEmpty &&
@@ -256,14 +259,17 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             ),
             const SizedBox(height: 20),
 
-            if (_proofRequired) ...[
+            if (_freeReason == 'Minor' || _freeReason == 'Senior Citizen') ...[
               _sectionLabel(
                 _freeReason == 'Minor'
-                    ? 'PSA Birth Certificate (required) *'
-                    : 'Senior Citizen ID (required) *',
+                    ? 'PSA Birth Certificate'
+                    : 'Senior Citizen ID',
               ),
               const SizedBox(height: 8),
-              _buildProofUpload(),
+              if (_hasProofOnFile)
+                _buildProofOnFileNotice()
+              else
+                _buildProofUpload(),
               const SizedBox(height: 20),
             ],
 
@@ -393,6 +399,40 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             const SizedBox(height: 24),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildProofOnFileNotice() {
+    final docName = _freeReason == 'Minor' ? 'PSA Birth Certificate' : 'Senior Citizen ID';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F5E9),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF1A6B1A)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_rounded, color: Color(0xFF1A6B1A), size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(docName,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A6B1A))),
+                const SizedBox(height: 2),
+                const Text('Already submitted during verification',
+                    style: TextStyle(fontSize: 12, color: Colors.black54)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

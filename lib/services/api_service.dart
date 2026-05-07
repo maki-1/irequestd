@@ -218,12 +218,27 @@ class ApiService {
     return {'statusCode': res.statusCode, ...body};
   }
 
-  static Future<Map<String, dynamic>> submitStep1(Map<String, dynamic> data) async {
-    final res = await http.post(
+  static Future<Map<String, dynamic>> submitStep1(
+    Map<String, dynamic> data, {
+    Uint8List? proofBytes,
+    String? proofFileName,
+  }) async {
+    final token = await getToken();
+    final request = http.MultipartRequest(
+      'POST',
       Uri.parse('$_baseUrl/verification/step1'),
-      headers: await _authHeaders(),
-      body: jsonEncode(data),
     );
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    data.forEach((k, v) => request.fields[k] = v?.toString() ?? '');
+    if (proofBytes != null && proofFileName != null) {
+      request.files.add(http.MultipartFile.fromBytes(
+        'freeDocumentProof',
+        proofBytes,
+        filename: proofFileName,
+      ));
+    }
+    final streamed = await request.send();
+    final res = await http.Response.fromStream(streamed);
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return {'statusCode': res.statusCode, ...body};
   }
