@@ -24,22 +24,41 @@ function paymongoAuth() {
 }
 
 // ── POST /api/payment/create-session ────────────────────────────────────────
-// Creates a PayMongo checkout session + a pending request record.
-// Returns { checkoutUrl, sessionId, requestId }
+// Accepts items: [{ documentType, purpose, additionalDetails, deliveryMethod }]
+// Creates one PayMongo checkout session with multiple line items + one Request per doc.
+// Returns { checkoutUrl, sessionId, requestIds }
 router.post('/create-session', authMiddleware, async (req, res) => {
   try {
-    const { documentType, purpose, additionalDetails, deliveryMethod } = req.body;
-
-    if (!documentType || !purpose || !deliveryMethod) {
-      return res.status(400).json({ message: 'Document type, purpose, and delivery method are required' });
+    const items = req.body.items;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: 'At least one document item is required' });
+    }
+    for (const item of items) {
+      if (!item.documentType || !item.purpose || !item.deliveryMethod) {
+        return res.status(400).json({ message: 'Each item requires documentType, purpose, and deliveryMethod' });
+      }
     }
 
-    const profile = await VerificationProfile.findOne({ user: req.user.id });
-    const yearsAtAddress = profile?.yearsAtAddress || '';
-
-    const PRICE = await getPriceCentavos(documentType);
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
     const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://irequestd.onrender.com/payment/cancel';
+
+    // Resolve prices for all items
+    const itemsWithPrice = await Promise.all(items.map(async (item) => ({
+      ...item,
+      priceCentavos: await getPriceCentavos(item.documentType),
+    })));
+
+    const lineItems = itemsWithPrice.map((item) => ({
+      currency: 'PHP',
+      amount: item.priceCentavos,
+      description: `${item.purpose}${item.additionalDetails ? ` — ${item.additionalDetails}` : ''}`,
+      name: item.documentType,
+      quantity: 1,
+    }));
+
+    const description = items.length === 1
+      ? `iRequestD — ${items[0].documentType}`
+      : `iRequestD — ${items.length} Documents`;
 
     const pmRes = await axios.post(
       `${PAYMONGO_BASE}/checkout_sessions`,
@@ -49,19 +68,11 @@ router.post('/create-session', authMiddleware, async (req, res) => {
             send_email_receipt: true,
             show_description: true,
             show_line_items: true,
-            line_items: [
-              {
-                currency: 'PHP',
-                amount: PRICE,
-                description: `${purpose}${additionalDetails ? ` — ${additionalDetails}` : ''}`,
-                name: documentType,
-                quantity: 1,
-              },
-            ],
+            line_items: lineItems,
             payment_method_types: PAYMENT_METHOD_TYPES,
             success_url: successUrl,
             cancel_url: cancelUrl,
-            description: `iRequestD — ${documentType}`,
+            description,
           },
         },
       },
@@ -77,18 +88,26 @@ router.post('/create-session', authMiddleware, async (req, res) => {
     const sessionId = sessionData.id;
     const checkoutUrl = sessionData.attributes.checkout_url;
 
-    const request = await Request.create({
-      user: req.user.id,
-      documentType,
-      purpose,
-      additionalDetails: additionalDetails || '',
-      deliveryMethod,
-      paymentStatus: 'unpaid',
-      paymentSessionId: sessionId,
-      amountPaid: 0, // stored in pesos
-    });
+    // Create one Request record per document
+    const requests = await Promise.all(itemsWithPrice.map((item) =>
+      Request.create({
+        user: req.user.id,
+        documentType: item.documentType,
+        purpose: item.purpose,
+        additionalDetails: item.additionalDetails || '',
+        deliveryMethod: item.deliveryMethod,
+        paymentStatus: 'unpaid',
+        paymentSessionId: sessionId,
+        amountPaid: 0,
+      })
+    ));
 
-    res.status(201).json({ checkoutUrl, sessionId, requestId: request._id });
+    res.status(201).json({
+      checkoutUrl,
+      sessionId,
+      requestIds: requests.map((r) => r._id),
+      requestId: requests[0]._id, // backward compat
+    });
   } catch (err) {
     console.error('PayMongo create-session error:', err?.response?.data || err.message);
     res.status(500).json({ message: 'Failed to create checkout session' });
@@ -96,20 +115,20 @@ router.post('/create-session', authMiddleware, async (req, res) => {
 });
 
 // ── GET /api/payment/status/:sessionId ──────────────────────────────────────
-// Polls the PayMongo checkout session status and syncs local request record.
+// Polls PayMongo and marks ALL requests for the session as paid.
 router.get('/status/:sessionId', authMiddleware, async (req, res) => {
   try {
     const { sessionId } = req.params;
 
-    const request = await Request.findOne({
+    const requests = await Request.find({
       paymentSessionId: sessionId,
       user: req.user.id,
     });
 
-    if (!request) return res.status(404).json({ message: 'Request not found' });
+    if (!requests.length) return res.status(404).json({ message: 'Request not found' });
 
-    if (request.paymentStatus === 'paid') {
-      return res.json({ paid: true, requestId: request._id });
+    if (requests.every((r) => r.paymentStatus === 'paid')) {
+      return res.json({ paid: true, requestIds: requests.map((r) => r._id) });
     }
 
     const pmRes = await axios.get(`${PAYMONGO_BASE}/checkout_sessions/${sessionId}`, {
@@ -123,14 +142,16 @@ router.get('/status/:sessionId', authMiddleware, async (req, res) => {
     const isPaid = sessionStatus === 'completed' || paymentIntentStatus === 'succeeded';
 
     if (isPaid) {
-      const PRICE = await getPriceCentavos(request.documentType);
-      request.paymentStatus = 'paid';
-      request.amountPaid = PRICE / 100;
-      await request.save();
-      return res.json({ paid: true, requestId: request._id });
+      await Promise.all(requests.map(async (r) => {
+        const PRICE = await getPriceCentavos(r.documentType);
+        r.paymentStatus = 'paid';
+        r.amountPaid = PRICE / 100;
+        await r.save();
+      }));
+      return res.json({ paid: true, requestIds: requests.map((r) => r._id) });
     }
 
-    res.json({ paid: false, requestId: request._id });
+    res.json({ paid: false });
   } catch (err) {
     console.error('PayMongo status error:', err?.response?.data || err.message);
     res.status(500).json({ message: 'Failed to check payment status' });

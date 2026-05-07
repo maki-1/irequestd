@@ -93,6 +93,39 @@ router.get('/claimed', async (req, res) => {
   }
 });
 
+// POST /api/requests/bulk  (free multi-doc submission)
+router.post('/bulk', uploadFreeProof.single('freeDocumentProof'), async (req, res) => {
+  try {
+    let items;
+    try {
+      items = JSON.parse(req.body.items || '[]');
+    } catch {
+      return res.status(400).json({ message: 'Invalid items format' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: 'At least one document item is required' });
+    }
+
+    const proofUrl = req.file?.path || '';
+
+    const requests = await Promise.all(items.map((item) =>
+      Request.create({
+        user: req.user.id,
+        documentType: item.documentType,
+        purpose: item.purpose,
+        additionalDetails: item.additionalDetails || '',
+        deliveryMethod: item.deliveryMethod,
+        freeDocumentProof: proofUrl,
+      })
+    ));
+
+    res.status(201).json(requests);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // DELETE /api/requests/:id
 router.delete('/:id', async (req, res) => {
   try {

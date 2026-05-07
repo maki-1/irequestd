@@ -382,26 +382,44 @@ class ApiService {
 
   // ── Payment endpoints ─────────────────────────────────────────────────────
 
-  /// Creates a PayMongo checkout session + a pending request record.
-  /// Returns { checkoutUrl, sessionId, requestId } on success.
+  /// Creates a PayMongo checkout session for one or more documents.
+  /// Returns { checkoutUrl, sessionId, requestIds } on success.
   static Future<Map<String, dynamic>> createCheckoutSession({
-    required String documentType,
-    required String purpose,
-    String additionalDetails = '',
-    required String deliveryMethod,
+    required List<Map<String, String>> items,
   }) async {
     final res = await http.post(
       Uri.parse('$_baseUrl/payment/create-session'),
       headers: await _authHeaders(),
-      body: jsonEncode({
-        'documentType': documentType,
-        'purpose': purpose,
-        'additionalDetails': additionalDetails,
-        'deliveryMethod': deliveryMethod,
-      }),
+      body: jsonEncode({'items': items}),
     );
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return {'statusCode': res.statusCode, ...body};
+  }
+
+  /// Creates multiple free requests in one call (for PWD / Senior / Minor).
+  static Future<Map<String, dynamic>> createBulkRequest({
+    required List<Map<String, String>> items,
+    Uint8List? proofFileBytes,
+    String? proofFileName,
+  }) async {
+    final token = await getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$_baseUrl/requests/bulk'),
+    );
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    request.fields['items'] = jsonEncode(items);
+    if (proofFileBytes != null && proofFileName != null) {
+      request.files.add(http.MultipartFile.fromBytes(
+        'freeDocumentProof',
+        proofFileBytes,
+        filename: proofFileName,
+      ));
+    }
+    final streamed = await request.send();
+    final res = await http.Response.fromStream(streamed);
+    final body = jsonDecode(res.body);
+    return {'statusCode': res.statusCode, 'data': body};
   }
 
   /// DEV ONLY — skips PayMongo and marks the request as paid instantly.

@@ -52,7 +52,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     'Certificate of Indigency': Icons.badge_outlined,
   };
 
-  String? _docType;
+  final Set<String> _selectedDocs = {};
   String? _purpose;
   String? _deliveryMethod;
   final _detailsController = TextEditingController();
@@ -61,7 +61,9 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   @override
   void initState() {
     super.initState();
-    _docType = widget.preselectedType;
+    if (widget.preselectedType != null) {
+      _selectedDocs.add(widget.preselectedType!);
+    }
     _loadPricesAndEligibility();
   }
 
@@ -104,9 +106,9 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     });
   }
 
-  double get _selectedPrice {
+  double get _totalPrice {
     if (_isFreeEligible) return 0.0;
-    return _prices[_docType] ?? 0.0;
+    return _selectedDocs.fold(0.0, (sum, doc) => sum + (_prices[doc] ?? 0.0));
   }
 
   @override
@@ -119,19 +121,23 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
       _freeReason == 'Minor' || _freeReason == 'Senior Citizen';
 
   bool get _canProceed =>
-      _docType != null &&
+      _selectedDocs.isNotEmpty &&
       _purpose != null &&
       _deliveryMethod != null &&
       (!_proofRequired || _proofBytes != null);
 
+  List<Map<String, String>> get _items => _selectedDocs.map((doc) => {
+    'documentType': doc,
+    'purpose': _purpose!,
+    'additionalDetails': _detailsController.text.trim(),
+    'deliveryMethod': _deliveryMethod!,
+  }).toList();
+
   Future<void> _submitFree() async {
     setState(() => _isLoading = true);
     try {
-      final result = await ApiService.createRequest(
-        documentType: _docType!,
-        purpose: _purpose!,
-        additionalDetails: _detailsController.text.trim(),
-        deliveryMethod: _deliveryMethod!,
+      final result = await ApiService.createBulkRequest(
+        items: _items,
         proofFileBytes: _proofBytes,
         proofFileName: _proofFile?.name,
       );
@@ -158,7 +164,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   }
 
   void _onProceed() {
-    if (_selectedPrice == 0) {
+    if (_totalPrice == 0) {
       _submitFree();
     } else {
       showModalBottomSheet(
@@ -166,13 +172,11 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
         builder: (_) => _PaymentSheet(
-          documentType: _docType!,
-          purpose: _purpose!,
-          additionalDetails: _detailsController.text.trim(),
-          deliveryMethod: _deliveryMethod!,
-          pricePhp: _selectedPrice,
+          items: _items,
+          prices: {for (final d in _selectedDocs) d: _prices[d] ?? 0.0},
+          totalPhp: _totalPrice,
           onPaid: () {
-            Navigator.pop(context); // close sheet
+            Navigator.pop(context);
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (_) => const MyRequestsScreen()),
@@ -201,13 +205,19 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _sectionLabel('Select Document Type *'),
+            _sectionLabel('Select Document(s) *'),
             const SizedBox(height: 8),
-            ..._docTypes.map((type) => _radioCard(
-                  value: type,
-                  groupValue: _docType,
+            ..._docTypes.map((type) => _checkCard(
+                  label: type,
                   icon: _docIcons[type] ?? Icons.description_outlined,
-                  onChanged: (v) => setState(() => _docType = v),
+                  checked: _selectedDocs.contains(type),
+                  onChanged: (checked) => setState(() {
+                    if (checked) {
+                      _selectedDocs.add(type);
+                    } else {
+                      _selectedDocs.remove(type);
+                    }
+                  }),
                 )),
             const SizedBox(height: 20),
 
@@ -268,73 +278,91 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             const SizedBox(height: 24),
 
             // Price summary card
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              decoration: BoxDecoration(
-                color: _isFreeEligible
-                    ? const Color(0xFFE8F5E9)
-                    : Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
+            if (_selectedDocs.isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                decoration: BoxDecoration(
                   color: _isFreeEligible
-                      ? const Color(0xFF1A6B1A)
-                      : Colors.black12,
+                      ? const Color(0xFFE8F5E9)
+                      : Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: _isFreeEligible
+                        ? const Color(0xFF1A6B1A)
+                        : Colors.black12,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Per-doc line items
+                    ..._selectedDocs.map((doc) => Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(doc,
+                                    style: const TextStyle(
+                                        fontSize: 13, color: Colors.black87)),
+                              ),
+                              Text(
+                                _isFreeEligible
+                                    ? 'FREE'
+                                    : '₱${(_prices[doc] ?? 0.0).toStringAsFixed(2)}',
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: _isFreeEligible
+                                        ? _green
+                                        : Colors.black87),
+                              ),
+                            ],
+                          ),
+                        )),
+                    if (_selectedDocs.length > 1) ...[
+                      const Divider(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Total',
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black87)),
+                          Text(
+                            _isFreeEligible
+                                ? 'FREE'
+                                : '₱${_totalPrice.toStringAsFixed(2)}',
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: _green),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (_isFreeEligible) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.verified_outlined,
+                              size: 14, color: Color(0xFF1A6B1A)),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Free for $_freeReason',
+                            style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF1A6B1A),
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Processing fee',
-                          style: TextStyle(fontSize: 14, color: Colors.black54)),
-                      _isFreeEligible
-                          ? Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1A6B1A),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: const Text(
-                                'FREE',
-                                style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white),
-                              ),
-                            )
-                          : Text(
-                              '₱${_selectedPrice.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF1A6B1A)),
-                            ),
-                    ],
-                  ),
-                  if (_isFreeEligible) ...[
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        const Icon(Icons.verified_outlined,
-                            size: 14, color: Color(0xFF1A6B1A)),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Free for $_freeReason',
-                          style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF1A6B1A),
-                              fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
             const SizedBox(height: 16),
 
             SizedBox(
@@ -342,13 +370,13 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
               height: 54,
               child: ElevatedButton.icon(
                 onPressed: (_canProceed && !_isLoading) ? _onProceed : null,
-                icon: Icon(_selectedPrice == 0
+                icon: Icon(_totalPrice == 0
                     ? Icons.check_circle_outline_rounded
                     : Icons.payment_rounded),
                 label: Text(
-                  _selectedPrice == 0
-                      ? 'Submit Request'
-                      : 'Proceed to Payment  ₱${_selectedPrice.toStringAsFixed(2)}',
+                  _totalPrice == 0
+                      ? 'Submit Request${_selectedDocs.length > 1 ? 's' : ''}'
+                      : 'Proceed to Payment  ₱${_totalPrice.toStringAsFixed(2)}',
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -515,6 +543,47 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     );
   }
 
+  Widget _checkCard({
+    required String label,
+    required IconData icon,
+    required bool checked,
+    required void Function(bool) onChanged,
+  }) {
+    return GestureDetector(
+      onTap: () => onChanged(!checked),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: checked ? const Color(0xFFE8F5E9) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: checked ? _green : Colors.black12,
+            width: checked ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: checked ? _green : Colors.black38, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: checked ? _green : Colors.black87)),
+            ),
+            Icon(
+              checked ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
+              color: checked ? _green : Colors.black26,
+              size: 22,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _sectionLabel(String text) => Text(
         text,
         style: const TextStyle(
@@ -604,19 +673,15 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
 enum _PayState { idle, creatingLink, awaitingPayment, polling, paid, error }
 
 class _PaymentSheet extends StatefulWidget {
-  final String documentType;
-  final String purpose;
-  final String additionalDetails;
-  final String deliveryMethod;
-  final double pricePhp;
+  final List<Map<String, String>> items;
+  final Map<String, double> prices;
+  final double totalPhp;
   final VoidCallback onPaid;
 
   const _PaymentSheet({
-    required this.documentType,
-    required this.purpose,
-    required this.additionalDetails,
-    required this.deliveryMethod,
-    required this.pricePhp,
+    required this.items,
+    required this.prices,
+    required this.totalPhp,
     required this.onPaid,
   });
 
@@ -648,10 +713,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
 
     try {
       final result = await ApiService.createCheckoutSession(
-        documentType: widget.documentType,
-        purpose: widget.purpose,
-        additionalDetails: widget.additionalDetails,
-        deliveryMethod: widget.deliveryMethod,
+        items: widget.items,
       );
 
       if (result['statusCode'] != 201) {
@@ -743,17 +805,23 @@ class _PaymentSheetState extends State<_PaymentSheet> {
           const SizedBox(height: 16),
 
           // Order details
-          _summaryRow(Icons.description_outlined, 'Document', widget.documentType),
-          _summaryRow(Icons.info_outline_rounded, 'Purpose', widget.purpose),
-          _summaryRow(Icons.store_outlined, 'Delivery', widget.deliveryMethod),
+          ...widget.items.map((item) => _summaryRow(
+                Icons.description_outlined,
+                item['documentType']!,
+                '₱${(widget.prices[item['documentType']] ?? 0.0).toStringAsFixed(2)}',
+              )),
+          _summaryRow(Icons.info_outline_rounded, 'Purpose', widget.items.first['purpose']!),
+          _summaryRow(Icons.store_outlined, 'Delivery', widget.items.first['deliveryMethod']!),
           const Divider(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Processing fee',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.black87)),
               Text(
-                '₱${widget.pricePhp.toStringAsFixed(2)}',
+                widget.items.length > 1 ? 'Total (${widget.items.length} docs)' : 'Processing fee',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.black87),
+              ),
+              Text(
+                '₱${widget.totalPhp.toStringAsFixed(2)}',
                 style: const TextStyle(
                     fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF1A6B1A)),
               ),
