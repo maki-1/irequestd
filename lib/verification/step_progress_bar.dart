@@ -16,11 +16,22 @@ class StepProgressBar extends StatelessWidget {
         final isActive = step == currentStep;
 
         return Expanded(
-          child: Row(
+          child: Column(
             children: [
-              // Circle
-              Column(
+              Row(
                 children: [
+                  // Left half-connector (hidden for first step)
+                  Expanded(
+                    child: step == 1
+                        ? const SizedBox()
+                        : Container(
+                            height: 2,
+                            color: (isActive || isDone)
+                                ? const Color(0xFF4CAF50)
+                                : Colors.white24,
+                          ),
+                  ),
+                  // Circle
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     width: 32,
@@ -52,27 +63,28 @@ class StepProgressBar extends StatelessWidget {
                             ),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _labels[i],
-                    style: TextStyle(
-                      color: isActive || isDone ? Colors.white : Colors.white38,
-                      fontSize: 10,
-                      fontWeight:
-                          isActive ? FontWeight.bold : FontWeight.normal,
-                    ),
+                  // Right half-connector (hidden for last step)
+                  Expanded(
+                    child: step == 3
+                        ? const SizedBox()
+                        : Container(
+                            height: 2,
+                            color: isDone
+                                ? const Color(0xFF4CAF50)
+                                : Colors.white24,
+                          ),
                   ),
                 ],
               ),
-              // Connector line (not after last step)
-              if (step < 3)
-                Expanded(
-                  child: Container(
-                    height: 2,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    color: isDone ? const Color(0xFF4CAF50) : Colors.white24,
-                  ),
+              const SizedBox(height: 4),
+              Text(
+                _labels[i],
+                style: TextStyle(
+                  color: isActive || isDone ? Colors.white : Colors.white38,
+                  fontSize: 10,
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                 ),
+              ),
             ],
           ),
         );

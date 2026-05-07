@@ -3,6 +3,7 @@ const router = express.Router();
 const authMiddleware = require('../middleware/auth');
 const Request = require('../models/Request');
 const CompletedDocument = require('../models/CompletedDocument');
+const { uploadFreeProof } = require('../config/cloudinary');
 
 router.use(authMiddleware);
 
@@ -35,7 +36,7 @@ router.get('/summary', async (req, res) => {
 });
 
 // POST /api/requests
-router.post('/', async (req, res) => {
+router.post('/', uploadFreeProof.single('freeDocumentProof'), async (req, res) => {
   try {
     const { documentType, purpose, additionalDetails, deliveryMethod } = req.body;
     if (!documentType || !purpose || !deliveryMethod) {
@@ -47,6 +48,7 @@ router.post('/', async (req, res) => {
       purpose,
       additionalDetails: additionalDetails || '',
       deliveryMethod,
+      freeDocumentProof: req.file?.path || '',
     });
     res.status(201).json(request);
   } catch (err) {

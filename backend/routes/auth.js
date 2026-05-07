@@ -65,6 +65,8 @@ router.get('/me', authMiddleware, async (req, res) => {
       avatar: user.avatar || '',
       accountStatus: profile?.status || 'draft',
       verificationStep: profile?.currentStep || 1,
+      isPwd: profile?.isPwd || false,
+      age: profile?.age || null,
     });
   } catch (err) {
     console.error(err);

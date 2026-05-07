@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'services/api_service.dart';
 import 'my_requests_screen.dart';
@@ -18,6 +20,12 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
 
   // prices loaded from DB: { 'Barangay Clearance': 100.0, ... }
   Map<String, double> _prices = {};
+
+  bool _isFreeEligible = false;
+  String _freeReason = '';
+
+  XFile? _proofFile;
+  Uint8List? _proofBytes;
 
   static const _docTypes = [
     'Barangay Clearance',
@@ -54,21 +62,52 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   void initState() {
     super.initState();
     _docType = widget.preselectedType;
-    _loadPrices();
+    _loadPricesAndEligibility();
   }
 
-  Future<void> _loadPrices() async {
-    final list = await ApiService.fetchDocumentPrices();
+  Future<void> _loadPricesAndEligibility() async {
+    final results = await Future.wait([
+      ApiService.fetchDocumentPrices(),
+      ApiService.getMe(),
+    ]);
+
     if (!mounted) return;
+
+    final list = results[0] as List<Map<String, dynamic>>;
+    final user = results[1] as Map<String, dynamic>?;
+
+    bool eligible = false;
+    String reason = '';
+
+    if (user != null) {
+      final isPwd = user['isPwd'] == true;
+      final age = user['age'] as int?;
+      if (isPwd) {
+        eligible = true;
+        reason = 'PWD';
+      } else if (age != null && age >= 60) {
+        eligible = true;
+        reason = 'Senior Citizen';
+      } else if (age != null && age < 18) {
+        eligible = true;
+        reason = 'Minor';
+      }
+    }
+
     setState(() {
       _prices = {
         for (final p in list)
           p['documentType'] as String: (p['pricecentavos'] as int) / 100.0,
       };
+      _isFreeEligible = eligible;
+      _freeReason = reason;
     });
   }
 
-  double get _selectedPrice => _prices[_docType] ?? 0.0;
+  double get _selectedPrice {
+    if (_isFreeEligible) return 0.0;
+    return _prices[_docType] ?? 0.0;
+  }
 
   @override
   void dispose() {
@@ -76,10 +115,14 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     super.dispose();
   }
 
+  bool get _proofRequired =>
+      _freeReason == 'Minor' || _freeReason == 'Senior Citizen';
+
   bool get _canProceed =>
       _docType != null &&
       _purpose != null &&
-      _deliveryMethod != null;
+      _deliveryMethod != null &&
+      (!_proofRequired || _proofBytes != null);
 
   Future<void> _submitFree() async {
     setState(() => _isLoading = true);
@@ -89,6 +132,8 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         purpose: _purpose!,
         additionalDetails: _detailsController.text.trim(),
         deliveryMethod: _deliveryMethod!,
+        proofFileBytes: _proofBytes,
+        proofFileName: _proofFile?.name,
       );
       if (!mounted) return;
       if (result['statusCode'] == 201) {
@@ -201,6 +246,17 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             ),
             const SizedBox(height: 20),
 
+            if (_proofRequired) ...[
+              _sectionLabel(
+                _freeReason == 'Minor'
+                    ? 'PSA Birth Certificate (required) *'
+                    : 'Senior Citizen ID (required) *',
+              ),
+              const SizedBox(height: 8),
+              _buildProofUpload(),
+              const SizedBox(height: 20),
+            ],
+
             _sectionLabel('Delivery Method *'),
             const SizedBox(height: 8),
             ..._deliveryMethods.map((m) => _radioCard(
@@ -216,22 +272,66 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: _isFreeEligible
+                    ? const Color(0xFFE8F5E9)
+                    : Colors.white,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.black12),
+                border: Border.all(
+                  color: _isFreeEligible
+                      ? const Color(0xFF1A6B1A)
+                      : Colors.black12,
+                ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Processing fee',
-                      style: TextStyle(fontSize: 14, color: Colors.black54)),
-                  Text(
-                    '₱${_selectedPrice.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1A6B1A)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Processing fee',
+                          style: TextStyle(fontSize: 14, color: Colors.black54)),
+                      _isFreeEligible
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1A6B1A),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'FREE',
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white),
+                              ),
+                            )
+                          : Text(
+                              '₱${_selectedPrice.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF1A6B1A)),
+                            ),
+                    ],
                   ),
+                  if (_isFreeEligible) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.verified_outlined,
+                            size: 14, color: Color(0xFF1A6B1A)),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Free for $_freeReason',
+                          style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF1A6B1A),
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -265,6 +365,152 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             const SizedBox(height: 24),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _pickProof() async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Text(
+              _freeReason == 'Minor'
+                  ? 'Upload PSA Birth Certificate'
+                  : 'Upload Senior Citizen ID',
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined,
+                  color: Color(0xFF1A6B1A)),
+              title: const Text('Take Photo'),
+              onTap: () async {
+                Navigator.pop(context);
+                final file = await ImagePicker()
+                    .pickImage(source: ImageSource.camera, imageQuality: 85);
+                if (file != null) _setProofFile(file);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined,
+                  color: Color(0xFF1A6B1A)),
+              title: const Text('Choose from Gallery'),
+              onTap: () async {
+                Navigator.pop(context);
+                final file = await ImagePicker()
+                    .pickImage(source: ImageSource.gallery, imageQuality: 85);
+                if (file != null) _setProofFile(file);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setProofFile(XFile file) async {
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('File too large (max 5MB)'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
+    }
+    setState(() {
+      _proofFile = file;
+      _proofBytes = bytes;
+    });
+  }
+
+  Widget _buildProofUpload() {
+    return GestureDetector(
+      onTap: _pickProof,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: _proofBytes != null
+              ? const Color(0xFFE8F5E9)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: _proofBytes != null
+                ? const Color(0xFF1A6B1A)
+                : Colors.black12,
+            width: _proofBytes != null ? 1.5 : 1,
+          ),
+        ),
+        child: _proofBytes == null
+            ? Column(
+                children: [
+                  Icon(Icons.upload_file_rounded,
+                      color: Colors.black26, size: 36),
+                  const SizedBox(height: 8),
+                  Text(
+                    _freeReason == 'Minor'
+                        ? 'Tap to upload PSA Birth Certificate'
+                        : 'Tap to upload Senior Citizen ID',
+                    style: const TextStyle(
+                        color: Colors.black54, fontSize: 13),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text('JPG, PNG  •  Max 5MB',
+                      style:
+                          TextStyle(color: Colors.black38, fontSize: 11)),
+                ],
+              )
+            : Column(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.memory(_proofBytes!,
+                        height: 100, fit: BoxFit.cover),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.check_circle_rounded,
+                          size: 16, color: Color(0xFF1A6B1A)),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          _proofFile!.name,
+                          style: const TextStyle(
+                              color: Color(0xFF1A6B1A),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  TextButton.icon(
+                    onPressed: () => setState(() {
+                      _proofFile = null;
+                      _proofBytes = null;
+                    }),
+                    icon: const Icon(Icons.close,
+                        size: 14, color: Colors.redAccent),
+                    label: const Text('Remove',
+                        style: TextStyle(
+                            color: Colors.redAccent, fontSize: 12)),
+                  ),
+                ],
+              ),
       ),
     );
   }

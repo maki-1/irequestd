@@ -16,6 +16,7 @@ const verificationProfileSchema = new mongoose.Schema(
     yearsAtAddress: { type: String, default: '' },
     motherName: { type: String, default: '' },
     fatherName: { type: String, default: '' },
+    isPwd: { type: Boolean, default: false },
 
     // Step 2 – Education
     educationLevel: { type: String, default: '' },

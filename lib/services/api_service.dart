@@ -6,8 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
-  static const String _baseUrl = 'https://irequestd.onrender.com/api';
-  // static const String _baseUrl = 'http://10.0.2.2:5000/api'; // Android emulator
+  // static const String _baseUrl = 'https://irequestd.onrender.com/api';
+  static const String _baseUrl = 'http://10.0.2.2:5000/api'; // Android emulator
   // static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web
 
   // ── Token helpers ────────────────────────────────────────────────────────────
@@ -323,7 +323,32 @@ class ApiService {
     required String purpose,
     String additionalDetails = '',
     required String deliveryMethod,
+    Uint8List? proofFileBytes,
+    String? proofFileName,
   }) async {
+    final token = await getToken();
+
+    if (proofFileBytes != null && proofFileName != null) {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/requests'),
+      );
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
+      request.fields['documentType'] = documentType;
+      request.fields['purpose'] = purpose;
+      request.fields['additionalDetails'] = additionalDetails;
+      request.fields['deliveryMethod'] = deliveryMethod;
+      request.files.add(http.MultipartFile.fromBytes(
+        'freeDocumentProof',
+        proofFileBytes,
+        filename: proofFileName,
+      ));
+      final streamed = await request.send();
+      final res = await http.Response.fromStream(streamed);
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      return {'statusCode': res.statusCode, ...body};
+    }
+
     final res = await http.post(
       Uri.parse('$_baseUrl/requests'),
       headers: await _authHeaders(),

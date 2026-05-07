@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import 'step_progress_bar.dart';
 import 'education_screen.dart';
@@ -41,6 +44,9 @@ class _DemographicScreenState extends State<DemographicScreen> {
   final _fatherNameController = TextEditingController();
 
   String? _gender;
+  String? _pwdStatus;
+  XFile? _pwdIdFile;
+  Uint8List? _pwdIdBytes;
   bool _isLoading = false;
   bool _agreedToTerms = false;
 
@@ -75,6 +81,11 @@ class _DemographicScreenState extends State<DemographicScreen> {
     ];
     final address = parts.join(', ');
 
+    if (_pwdStatus == 'Yes' && _pwdIdFile == null) {
+      _showError('Please attach your PWD ID.');
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
       final result = await ApiService.submitStep1({
@@ -85,6 +96,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
         'yearsAtAddress': _yearsAtAddressController.text.trim(),
         'motherName': _motherNameController.text.trim(),
         'fatherName': _fatherNameController.text.trim(),
+        'isPwd': _pwdStatus == 'Yes',
+        'pwdIdAttached': _pwdIdFile != null,
       });
 
       if (!mounted) return;
@@ -102,6 +115,113 @@ class _DemographicScreenState extends State<DemographicScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _pickPwdId() async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            const Text('Upload PWD ID',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF1A6B1A)),
+              title: const Text('Take Photo'),
+              onTap: () async {
+                Navigator.pop(context);
+                final file = await ImagePicker()
+                    .pickImage(source: ImageSource.camera, imageQuality: 85);
+                if (file != null) _checkAndSetPwdFile(file);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF1A6B1A)),
+              title: const Text('Choose from Gallery'),
+              onTap: () async {
+                Navigator.pop(context);
+                final file = await ImagePicker()
+                    .pickImage(source: ImageSource.gallery, imageQuality: 85);
+                if (file != null) _checkAndSetPwdFile(file);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _checkAndSetPwdFile(XFile file) async {
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('File too large (max 5MB)'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
+    }
+    setState(() {
+      _pwdIdFile = file;
+      _pwdIdBytes = bytes;
+    });
+  }
+
+  Widget _buildPwdIdUpload() {
+    return GestureDetector(
+      onTap: _pickPwdId,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white30, width: 1.5),
+        ),
+        child: _pwdIdFile == null
+            ? const Column(
+                children: [
+                  Icon(Icons.upload_file_rounded, color: Colors.white54, size: 36),
+                  SizedBox(height: 8),
+                  Text('Tap to upload PWD ID',
+                      style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  SizedBox(height: 4),
+                  Text('JPG, PNG  •  Max 5MB',
+                      style: TextStyle(color: Colors.white38, fontSize: 11)),
+                ],
+              )
+            : Column(
+                children: [
+                  if (_pwdIdBytes != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(_pwdIdBytes!, height: 100, fit: BoxFit.cover),
+                    ),
+                  const SizedBox(height: 8),
+                  Text(_pwdIdFile!.name,
+                      style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  TextButton.icon(
+                    onPressed: () => setState(() {
+                      _pwdIdFile = null;
+                      _pwdIdBytes = null;
+                    }),
+                    icon: const Icon(Icons.close, size: 14, color: Colors.redAccent),
+                    label: const Text('Remove',
+                        style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                  ),
+                ],
+              ),
+      ),
+    );
   }
 
   void _showError(String msg) {
@@ -195,7 +315,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
                           _label('Age *'),
                           _textField(
                             controller: _ageController,
-                            hint: '18+',
+                            hint: 'e.g. 25',
                             keyboardType: TextInputType.number,
                             formatters: [
                               FilteringTextInputFormatter.digitsOnly,
@@ -249,6 +369,27 @@ class _DemographicScreenState extends State<DemographicScreen> {
                   },
                 ),
                 const SizedBox(height: 14),
+
+                _label('PWD? *'),
+                _simpleDropdown(
+                  value: _pwdStatus,
+                  hint: 'Yes or No',
+                  items: const ['Yes', 'No'],
+                  onChanged: (v) => setState(() {
+                    _pwdStatus = v;
+                    if (v != 'Yes') {
+                      _pwdIdFile = null;
+                      _pwdIdBytes = null;
+                    }
+                  }),
+                  validator: (v) => v == null ? 'Required' : null,
+                ),
+                const SizedBox(height: 14),
+                if (_pwdStatus == 'Yes') ...[
+                  _label('PWD ID (required)'),
+                  _buildPwdIdUpload(),
+                  const SizedBox(height: 14),
+                ],
 
                 _label("Full Mother's Maiden Name *"),
                 _textField(

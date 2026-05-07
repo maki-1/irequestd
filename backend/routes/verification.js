@@ -26,14 +26,11 @@ router.get('/status', async (req, res) => {
 // ── POST /api/verification/step1 ──────────────────────────────────────────────
 router.post('/step1', async (req, res) => {
   try {
-    const { fullName, address, age, gender, yearsAtAddress, motherName, fatherName } =
+    const { fullName, address, age, gender, yearsAtAddress, motherName, fatherName, isPwd } =
       req.body;
 
     if (!fullName || !address || !age || !gender || !yearsAtAddress || !motherName || !fatherName) {
       return res.status(400).json({ message: 'All fields are required' });
-    }
-    if (parseInt(age) < 18) {
-      return res.status(400).json({ message: 'Must be 18 years or older' });
     }
 
     const profile = await VerificationProfile.findOneAndUpdate(
@@ -47,6 +44,7 @@ router.post('/step1', async (req, res) => {
         yearsAtAddress,
         motherName: motherName.trim(),
         fatherName: fatherName.trim(),
+        isPwd: isPwd === true || isPwd === 'true',
         currentStep: 2,
       },
       { upsert: true, new: true }

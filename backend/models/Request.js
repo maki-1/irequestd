@@ -40,6 +40,7 @@ const requestSchema = new mongoose.Schema(
     paymentSessionId: { type: String, default: null },
     amountPaid: { type: Number, default: 0 }, // in pesos (PHP)
     orNumber: { type: String, unique: true, sparse: true },
+    freeDocumentProof: { type: String, default: '' },
   },
   { timestamps: true }
 );
