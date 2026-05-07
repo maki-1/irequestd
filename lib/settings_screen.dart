@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'services/api_service.dart';
 import 'login_screen.dart';
 import 'my_requests_screen.dart';
+import 'profile_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -318,6 +319,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // ── ACCOUNT section ─────────────────────────────────────────
           _sectionHeader('ACCOUNT'),
+          _menuTile(
+            icon: Icons.person_outline,
+            title: 'My Profile',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ProfileScreen()),
+            ),
+          ),
           _menuTile(
             icon: Icons.lock_outline,
             title: 'Change Password',

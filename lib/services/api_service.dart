@@ -443,6 +443,19 @@ class ApiService {
     return {'statusCode': res.statusCode, ...body};
   }
 
+  // ── Demographic profile ───────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> fetchDemographicProfile() async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/auth/profile'),
+      headers: await _authHeaders(),
+    );
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    throw Exception('Failed to load profile');
+  }
+
   // ── Profile endpoints ─────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> uploadAvatar(

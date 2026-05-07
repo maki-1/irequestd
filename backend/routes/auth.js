@@ -74,6 +74,37 @@ router.get('/me', authMiddleware, async (req, res) => {
   }
 });
 
+// ── GET /api/auth/profile  (requires token) ──────────────────────────────────
+router.get('/profile', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const profile = await VerificationProfile.findOne({ user: user._id });
+
+    res.json({
+      username: user.username,
+      email: user.email,
+      contactNumber: user.contactNumber,
+      fullName: profile?.fullName || '',
+      age: profile?.age || null,
+      gender: profile?.gender || '',
+      address: profile?.address || '',
+      yearsAtAddress: profile?.yearsAtAddress || '',
+      motherName: profile?.motherName || '',
+      fatherName: profile?.fatherName || '',
+      isPwd: profile?.isPwd || false,
+      educationLevel: profile?.educationLevel || '',
+      school: profile?.school || '',
+      yearGraduated: profile?.yearGraduated || '',
+      course: profile?.course || '',
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // ── PUT /api/auth/avatar  (requires token) ───────────────────────────────────
 router.put('/avatar', authMiddleware, uploadAvatar.single('avatar'), async (req, res) => {
   try {
