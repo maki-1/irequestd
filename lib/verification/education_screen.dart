@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import '../login_screen.dart';
 import '../services/api_service.dart';
 import 'step_progress_bar.dart';
 import 'id_verification_screen.dart';
@@ -154,6 +155,38 @@ class _EducationScreenState extends State<EducationScreen> {
     ));
   }
 
+  Future<void> _confirmLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text(
+            'Your progress is saved. You can continue from this step when you log back in.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Logout', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await ApiService.clearSession();
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (_) => false,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -164,6 +197,13 @@ class _EducationScreenState extends State<EducationScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text('Step 2: Educational Attainment',
             style: TextStyle(color: Colors.white, fontSize: 16)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            tooltip: 'Logout',
+            onPressed: _confirmLogout,
+          ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(

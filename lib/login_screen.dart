@@ -83,7 +83,8 @@ class _LoginScreenState extends State<LoginScreen> {
     Widget destination;
     if (verificationStatus == 'approved') {
       destination = const DashboardScreen();
-    } else if (verificationStatus == 'pending') {
+    } else if (verificationStatus == 'pending' ||
+        verificationStatus == 'under_review') {
       destination = const VerificationWaitingScreen();
     } else if (verificationStatus == 'draft' || verificationStatus == null) {
       // Route to whichever step they left off at

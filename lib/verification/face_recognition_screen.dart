@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import '../login_screen.dart';
 import '../services/api_service.dart';
 import '../services/llama_service.dart';
 import 'step_progress_bar.dart';
@@ -380,6 +381,38 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
       _step == _LivenessStep.moveBack ||
       _step == _LivenessStep.blink;
 
+  Future<void> _confirmLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text(
+            'Your progress is saved. You can continue from this step when you log back in.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Logout', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await ApiService.clearSession();
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (_) => false,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -459,7 +492,11 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                     const Text('Face Scan',
                         style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
                     const Spacer(),
-                    const SizedBox(width: 48),
+                    IconButton(
+                      icon: const Icon(Icons.logout, color: Colors.white),
+                      tooltip: 'Logout',
+                      onPressed: _confirmLogout,
+                    ),
                   ],
                 ),
                 const Padding(
