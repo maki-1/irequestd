@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 
 class StepProgressBar extends StatelessWidget {
-  final int currentStep; // 1, 2, or 3
+  final int currentStep; // 1, 2, 3, or 4
 
   const StepProgressBar({super.key, required this.currentStep});
 
-  static const _labels = ['Profile', 'Education', 'ID'];
+  static const _labels = ['Profile', 'Education', 'ID', 'Face'];
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: List.generate(3, (i) {
+      children: List.generate(4, (i) {
         final step = i + 1;
         final isDone = step < currentStep;
         final isActive = step == currentStep;
@@ -34,8 +34,8 @@ class StepProgressBar extends StatelessWidget {
                   // Circle
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
-                    width: 32,
-                    height: 32,
+                    width: 28,
+                    height: 28,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: isDone
@@ -50,7 +50,7 @@ class StepProgressBar extends StatelessWidget {
                     child: Center(
                       child: isDone
                           ? const Icon(Icons.check_rounded,
-                              color: Colors.white, size: 18)
+                              color: Colors.white, size: 16)
                           : Text(
                               '$step',
                               style: TextStyle(
@@ -58,14 +58,14 @@ class StepProgressBar extends StatelessWidget {
                                     ? const Color(0xFF1A6B1A)
                                     : Colors.white54,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: 12,
                               ),
                             ),
                     ),
                   ),
                   // Right half-connector (hidden for last step)
                   Expanded(
-                    child: step == 3
+                    child: step == 4
                         ? const SizedBox()
                         : Container(
                             height: 2,
@@ -81,7 +81,7 @@ class StepProgressBar extends StatelessWidget {
                 _labels[i],
                 style: TextStyle(
                   color: isActive || isDone ? Colors.white : Colors.white38,
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                 ),
               ),

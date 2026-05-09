@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import 'step_progress_bar.dart';
-import 'face_recognition_screen.dart';
+import 'id_verification_screen.dart';
 
 class EducationScreen extends StatefulWidget {
   const EducationScreen({super.key});
@@ -134,7 +134,7 @@ class _EducationScreenState extends State<EducationScreen> {
       if (result['statusCode'] == 200) {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const FaceRecognitionScreen()),
+          MaterialPageRoute(builder: (_) => const IdVerificationScreen()),
         );
       } else {
         _showError(result['message'] as String? ?? 'Failed to save');

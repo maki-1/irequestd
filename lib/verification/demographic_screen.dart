@@ -33,6 +33,17 @@ class _DemographicScreenState extends State<DemographicScreen> {
     'Purok 8',
     'Purok 9',
     'Purok 10',
+    'Purok 11',
+    'Purok 12',
+    'Purok 13',
+    'Purok 14',
+    'Purok 15',
+    'Purok 16',
+    'Purok 17',
+    'Purok 18',
+    'Purok 19',
+    'Purok 20',
+    'Purok 21',
   ];
 
   final _formKey = GlobalKey<FormState>();
@@ -326,15 +337,6 @@ class _DemographicScreenState extends State<DemographicScreen> {
                     LengthLimitingTextInputFormatter(100),
                   ],
                 ),
-                const SizedBox(height: 14),
-
-                // Province — fixed as Bukidnon
-                _label('Province'),
-                _staticField(_provinceName),
-                const SizedBox(height: 14),
-
-                _label('City / Municipality'),
-                _staticField(_fixedMunicipality),
                 const SizedBox(height: 14),
 
                 _label('Barangay'),

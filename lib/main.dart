@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import 'services/notification_service.dart';
@@ -8,11 +9,12 @@ import 'settings_screen.dart';
 import 'services/api_service.dart';
 import 'verification/demographic_screen.dart';
 import 'verification/education_screen.dart';
-import 'verification/face_recognition_screen.dart';
+import 'verification/id_verification_screen.dart';
 import 'verification/verification_waiting_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: '.env');
   await NotificationService.init();
   final prefs = await SharedPreferences.getInstance();
   final seenOnboarding = prefs.getBool('seen_onboarding') ?? false;
@@ -57,7 +59,7 @@ void main() async {
 Widget _resolveHome(String? status, int step) {
   if (status == 'approved') return const DashboardScreen();
   if (status == 'pending') return const VerificationWaitingScreen();
-  if (step >= 3) return const FaceRecognitionScreen();
+  if (step >= 3) return const IdVerificationScreen();
   if (step >= 2) return const EducationScreen();
   return const DemographicScreen();
 }

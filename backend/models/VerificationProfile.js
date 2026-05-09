@@ -28,11 +28,15 @@ const verificationProfileSchema = new mongoose.Schema(
     educationCertificate: { type: String, default: '' }, // filename
 
     // Step 3 – ID + Face
-    idType: { type: String, default: '' },   // 'primary' | 'secondary'
+    idType: { type: String, default: '' },    // 'primary' | 'secondary'
     idName: { type: String, default: '' },
-    idFront: { type: String, default: '' },  // filename
-    idBack: { type: String, default: '' },   // filename
-    facePhoto: { type: String, default: '' }, // filename
+    idFront: { type: String, default: '' },   // Cloudinary URL
+    idBack: { type: String, default: '' },    // Cloudinary URL (empty for single-page IDs)
+    facePhoto: { type: String, default: '' }, // Cloudinary URL
+    // Second ID (secondary type only)
+    idName2: { type: String, default: '' },
+    idFront2: { type: String, default: '' },
+    idBack2: { type: String, default: '' },
 
     // Progress tracking
     currentStep: { type: Number, default: 1 }, // 1, 2, 3

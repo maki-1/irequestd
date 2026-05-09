@@ -123,7 +123,7 @@ class VerificationWaitingScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Your documents have been submitted to our secretary for verification.',
+                  'Your documents have been submitted. Please wait while we review your information.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                       color: Colors.black54, fontSize: 14, height: 1.5),
@@ -147,7 +147,7 @@ class VerificationWaitingScreen extends StatelessWidget {
                               fontSize: 12,
                               fontWeight: FontWeight.w600)),
                       const SizedBox(height: 4),
-                      Text('24 - 72 Hours',
+                      Text('2 - 6 Hours',
                           style: TextStyle(
                               color: Colors.orange.shade700,
                               fontSize: 22,

@@ -3,11 +3,34 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import '../services/api_service.dart';
+import '../services/llama_service.dart';
 import 'step_progress_bar.dart';
-import 'id_verification_screen.dart';
+import 'verification_waiting_screen.dart';
 
 class FaceRecognitionScreen extends StatefulWidget {
-  const FaceRecognitionScreen({super.key});
+  final String idType;
+  final String idName;
+  final String idFrontPath;
+  final String idBackPath;
+  final Uint8List? idFaceCrop;
+  final Uint8List? idFrontBytes; // full ID front image — fallback for face compare
+  final String? idName2;
+  final String? idFrontPath2;
+  final String? idBackPath2;
+
+  const FaceRecognitionScreen({
+    super.key,
+    required this.idType,
+    required this.idName,
+    required this.idFrontPath,
+    required this.idBackPath,
+    this.idFaceCrop,
+    this.idFrontBytes,
+    this.idName2,
+    this.idFrontPath2,
+    this.idBackPath2,
+  });
 
   @override
   State<FaceRecognitionScreen> createState() => _FaceRecognitionScreenState();
@@ -59,7 +82,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
       case _LivenessStep.done:
         return 'Scan complete!';
       case _LivenessStep.failed:
-        return 'Liveness check failed.\nPlease try again.';
+        return 'No Face Detected.\nPlease try again.';
     }
   }
 
@@ -227,6 +250,24 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
             final finalPhoto = await _ctrl!.takePicture();
             final finalBytes = await finalPhoto.readAsBytes();
             if (!mounted) return;
+
+            // Prefer the face crop; fall back to the full ID front bytes.
+            final idImage = widget.idFaceCrop ?? widget.idFrontBytes;
+            debugPrint('[Face compare] idFaceCrop=${widget.idFaceCrop != null} idFrontBytes=${widget.idFrontBytes != null} using=${idImage != null}');
+
+            if (idImage != null) {
+              setState(() => _step = _LivenessStep.verifying);
+              final match = await LlamaService.compareFaces(idImage, finalBytes);
+              debugPrint('[LLaMA face] same_person=$match');
+              if (!mounted) return;
+              if (match == false) {
+                _fail('Face does not match\nthe ID photo.\nPlease use your own ID.');
+                return;
+              }
+              // null = API could not determine → allow through
+            }
+
+            if (!mounted) return;
             setState(() {
               _photo = finalPhoto;
               _photoBytes = finalBytes;
@@ -278,13 +319,47 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
     Future.delayed(const Duration(milliseconds: 500), _runStep);
   }
 
-  void _continue() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => IdVerificationScreen(facePhotoPath: _photo?.path),
-      ),
-    );
+  bool _isSubmitting = false;
+
+  Future<void> _continue() async {
+    if (_isSubmitting) return;
+    setState(() => _isSubmitting = true);
+    try {
+      final result = await ApiService.submitStep3(
+        idType: widget.idType,
+        idName: widget.idName,
+        facePhotoPath: _photo?.path,
+        idFrontPath: widget.idFrontPath,
+        idBackPath: widget.idBackPath,
+        idName2: widget.idName2,
+        idFrontPath2: widget.idFrontPath2,
+        idBackPath2: widget.idBackPath2,
+      );
+      if (!mounted) return;
+      if (result['statusCode'] == 200) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const VerificationWaitingScreen()),
+          (route) => false,
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(result['message'] as String? ?? 'Submission failed'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ));
+        setState(() => _isSubmitting = false);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Connection error. Try again.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ));
+        setState(() => _isSubmitting = false);
+      }
+    }
   }
 
   @override
@@ -389,7 +464,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                 ),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 20),
-                  child: StepProgressBar(currentStep: 3),
+                  child: StepProgressBar(currentStep: 4),
                 ),
 
                 const Spacer(),
@@ -429,7 +504,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                       children: [
                         Icon(Icons.check_circle_rounded, color: Color(0xFF4CFF4C), size: 18),
                         SizedBox(width: 8),
-                        Text('Liveness verified!',
+                        Text('Face scan complete!',
                             style: TextStyle(color: Color(0xFF4CFF4C), fontSize: 14, fontWeight: FontWeight.w600)),
                       ],
                     ),
@@ -485,15 +560,21 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
           Expanded(
             flex: 2,
             child: ElevatedButton(
-              onPressed: _continue,
+              onPressed: _isSubmitting ? null : _continue,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _lime,
                 foregroundColor: Colors.black,
+                disabledBackgroundColor: _lime.withValues(alpha: 0.5),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
               ),
-              child: const Text('Continue to ID Scan',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black54))
+                  : const Text('Submit Verification',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
             ),
           ),
         ],

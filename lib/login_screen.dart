@@ -6,7 +6,7 @@ import 'forgot_password_screen.dart';
 import 'services/api_service.dart';
 import 'verification/demographic_screen.dart';
 import 'verification/education_screen.dart';
-import 'verification/face_recognition_screen.dart';
+import 'verification/id_verification_screen.dart';
 import 'verification/verification_waiting_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -88,7 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else if (verificationStatus == 'draft' || verificationStatus == null) {
       // Route to whichever step they left off at
       if (step >= 3) {
-        destination = const FaceRecognitionScreen();
+        destination = const IdVerificationScreen();
       } else if (step >= 2) {
         destination = const EducationScreen();
       } else {

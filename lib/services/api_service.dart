@@ -7,8 +7,8 @@ class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
   static const String _baseUrl = 'https://irequestd.onrender.com/api';
-  // static const String _baseUrl = 'http://10.0.2.2:5000/api'; // Android emulator
-  // static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web
+  // static const String _baseUrl = 'http://192.168.1.43:5000/api'; // Physical device
+  // aticst const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web/
 
   // ── Token helpers ────────────────────────────────────────────────────────────
 
@@ -267,6 +267,9 @@ class ApiService {
     String? facePhotoPath,
     required String idFrontPath,
     required String idBackPath,
+    String? idName2,
+    String? idFrontPath2,
+    String? idBackPath2,
   }) async {
     final token = await getToken();
     final request = http.MultipartRequest(
@@ -280,7 +283,19 @@ class ApiService {
       request.files.add(await http.MultipartFile.fromPath('facePhoto', facePhotoPath));
     }
     request.files.add(await http.MultipartFile.fromPath('idFront', idFrontPath));
-    request.files.add(await http.MultipartFile.fromPath('idBack', idBackPath));
+    if (idBackPath.isNotEmpty) {
+      request.files.add(await http.MultipartFile.fromPath('idBack', idBackPath));
+    }
+    // Second ID (secondary type only)
+    if (idName2 != null && idName2.isNotEmpty) {
+      request.fields['idName2'] = idName2;
+    }
+    if (idFrontPath2 != null && idFrontPath2.isNotEmpty) {
+      request.files.add(await http.MultipartFile.fromPath('idFront2', idFrontPath2));
+    }
+    if (idBackPath2 != null && idBackPath2.isNotEmpty) {
+      request.files.add(await http.MultipartFile.fromPath('idBack2', idBackPath2));
+    }
     final streamed = await request.send();
     final res = await http.Response.fromStream(streamed);
     final body = jsonDecode(res.body) as Map<String, dynamic>;
