@@ -20,6 +20,9 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
 
   // prices loaded from DB: { 'Barangay Clearance': 100.0, ... }
   Map<String, double> _prices = {};
+  // purok clearance fees loaded from DB: { 'Purok 1': 50.0, ... }
+  Map<String, double> _purokFees = {};
+  String? _userPurok;
 
   bool _isFreeEligible = false;
   String _freeReason = '';
@@ -72,12 +75,14 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     final results = await Future.wait([
       ApiService.fetchDocumentPrices(),
       ApiService.getMe(),
+      ApiService.fetchPurokClearanceFees(),
     ]);
 
     if (!mounted) return;
 
     final list = (results[0] as List).cast<Map<String, dynamic>>();
     final user = results[1] as Map<String, dynamic>?;
+    final purokFeeList = (results[2] as List).cast<Map<String, dynamic>>();
 
     bool eligible = false;
     String reason = '';
@@ -102,15 +107,28 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         for (final p in list)
           p['documentType'] as String: (p['pricecentavos'] as int) / 100.0,
       };
+      _purokFees = {
+        for (final f in purokFeeList)
+          f['purokName'] as String: (f['feecentavos'] as int) / 100.0,
+      };
+      _userPurok = user?['purok'] as String?;
       _isFreeEligible = eligible;
       _freeReason = reason;
       _hasProofOnFile = user?['hasFreeProof'] == true;
     });
   }
 
+  double get _purokClearanceFee {
+    if (_isFreeEligible) return 0.0;
+    if (!_selectedDocs.contains('Barangay Clearance')) return 0.0;
+    if (_userPurok == null) return 0.0;
+    return _purokFees[_userPurok] ?? 0.0;
+  }
+
   double get _totalPrice {
     if (_isFreeEligible) return 0.0;
-    return _selectedDocs.fold(0.0, (sum, doc) => sum + (_prices[doc] ?? 0.0));
+    final docTotal = _selectedDocs.fold(0.0, (sum, doc) => sum + (_prices[doc] ?? 0.0));
+    return docTotal + _purokClearanceFee;
   }
 
   @override
@@ -177,6 +195,8 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         builder: (_) => _PaymentSheet(
           items: _items,
           prices: {for (final d in _selectedDocs) d: _prices[d] ?? 0.0},
+          purokClearanceFee: _purokClearanceFee,
+          userPurok: _userPurok,
           totalPhp: _totalPrice,
           onPaid: () {
             Navigator.pop(context);
@@ -327,7 +347,31 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                             ],
                           ),
                         )),
-                    if (_selectedDocs.length > 1) ...[
+                    // Purok clearance fee line item (normal accounts only)
+                    if (!_isFreeEligible && _purokClearanceFee > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Purok Clearance Fee${_userPurok != null ? ' ($_userPurok)' : ''}',
+                                style: const TextStyle(
+                                    fontSize: 13, color: Colors.black54),
+                              ),
+                            ),
+                            Text(
+                              '₱${_purokClearanceFee.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (_selectedDocs.length > 1 || _purokClearanceFee > 0) ...[
                       const Divider(height: 14),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -715,12 +759,16 @@ enum _PayState { idle, creatingLink, awaitingPayment, polling, paid, error }
 class _PaymentSheet extends StatefulWidget {
   final List<Map<String, String>> items;
   final Map<String, double> prices;
+  final double purokClearanceFee;
+  final String? userPurok;
   final double totalPhp;
   final VoidCallback onPaid;
 
   const _PaymentSheet({
     required this.items,
     required this.prices,
+    required this.purokClearanceFee,
+    required this.userPurok,
     required this.totalPhp,
     required this.onPaid,
   });
@@ -850,6 +898,12 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 item['documentType']!,
                 '₱${(widget.prices[item['documentType']] ?? 0.0).toStringAsFixed(2)}',
               )),
+          if (widget.purokClearanceFee > 0)
+            _summaryRow(
+              Icons.location_on_outlined,
+              'Purok Clearance Fee${widget.userPurok != null ? ' (${widget.userPurok})' : ''}',
+              '₱${widget.purokClearanceFee.toStringAsFixed(2)}',
+            ),
           _summaryRow(Icons.info_outline_rounded, 'Purpose', widget.items.first['purpose']!),
           _summaryRow(Icons.store_outlined, 'Delivery', widget.items.first['deliveryMethod']!),
           const Divider(height: 24),

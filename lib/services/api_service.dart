@@ -6,9 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
-  static const String _baseUrl = 'https://irequestd.onrender.com/api';
+  // static const String _baseUrl = 'https://irequestd.onrender.com/api';
   // static const String _baseUrl = 'http://192.168.1.43:5000/api'; // Physical device
-  // aticst const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web/
+  static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web/
 
   // ── Token helpers ────────────────────────────────────────────────────────────
 
@@ -410,6 +410,14 @@ class ApiService {
     return [];
   }
 
+  /// Fetches purok clearance fees for all puroks.
+  /// Returns a list of { purokName, feecentavos, description }
+  static Future<List<dynamic>> fetchPurokClearanceFees() async {
+    final res = await http.get(Uri.parse('$_baseUrl/admin/purok-fees'));
+    if (res.statusCode == 200) return jsonDecode(res.body) as List<dynamic>;
+    return [];
+  }
+
   // ── Payment endpoints ─────────────────────────────────────────────────────
 
   /// Creates a PayMongo checkout session for one or more documents.
@@ -450,6 +458,17 @@ class ApiService {
     final res = await http.Response.fromStream(streamed);
     final body = jsonDecode(res.body);
     return {'statusCode': res.statusCode, 'data': body};
+  }
+
+  /// Creates a new PayMongo checkout session for an existing unpaid request.
+  /// Returns { checkoutUrl, sessionId, requestId } on success.
+  static Future<Map<String, dynamic>> retryPaymentSession(String requestId) async {
+    final res = await http.post(
+      Uri.parse('$_baseUrl/payment/retry-session/$requestId'),
+      headers: await _authHeaders(),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return {'statusCode': res.statusCode, ...body};
   }
 
   /// DEV ONLY — skips PayMongo and marks the request as paid instantly.

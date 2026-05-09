@@ -47,6 +47,7 @@ const requestSchema = new mongoose.Schema(
     amountPaid: { type: Number, default: 0 }, // in pesos (PHP)
     orNumber: { type: String, unique: true, sparse: true },
     freeDocumentProof: { type: String, default: '' },
+    purokClearanceFee: { type: Number, default: 0 }, // in pesos (PHP)
   },
   { timestamps: true }
 );

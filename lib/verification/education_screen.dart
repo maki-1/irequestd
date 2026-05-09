@@ -108,9 +108,10 @@ class _EducationScreenState extends State<EducationScreen> {
     final year = _yearController.text.trim();
     if (year.isNotEmpty) {
       final y = int.tryParse(year);
-      if (y == null || y < 1950 || y > 2035) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Year must be between 1950 and 2035'),
+      final currentYear = DateTime.now().year;
+      if (y == null || y < 1950 || y > currentYear) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Year must be between 1950 and $currentYear'),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
         ));

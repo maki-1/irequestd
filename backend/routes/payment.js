@@ -4,9 +4,11 @@ const axios = require('axios');
 const crypto = require('crypto');
 const authMiddleware = require('../middleware/auth');
 const Request = require('../models/Request');
+const User = require('../models/User');
 const VerificationProfile = require('../models/VerificationProfile');
-
 const DocumentPrice = require('../models/DocumentPrice');
+const PurokClearanceFee = require('../models/PurokClearanceFee');
+const { sendPurokClearanceForm } = require('../services/email');
 
 const PAYMONGO_BASE = 'https://api.paymongo.com/v1';
 const FALLBACK_PRICE = parseInt(process.env.DOCUMENT_PRICE_CENTAVOS || '500', 10);
@@ -16,6 +18,15 @@ const PAYMENT_METHOD_TYPES = ['gcash', 'paymaya', 'grab_pay', 'card'];
 async function getPriceCentavos(documentType) {
   const entry = await DocumentPrice.findOne({ documentType });
   return entry ? entry.pricecentavos : FALLBACK_PRICE;
+}
+
+async function getPurokFeeCentavos(userId) {
+  const profile = await VerificationProfile.findOne({ user: userId });
+  if (!profile?.address) return 0;
+  const match = profile.address.match(/^(Purok\s+\d+)/i);
+  if (!match) return 0;
+  const fee = await PurokClearanceFee.findOne({ purokName: match[1] });
+  return fee ? fee.feecentavos : 0;
 }
 
 function paymongoAuth() {
@@ -42,19 +53,36 @@ router.post('/create-session', authMiddleware, async (req, res) => {
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
     const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://irequestd.onrender.com/payment/cancel';
 
-    // Resolve prices for all items
-    const itemsWithPrice = await Promise.all(items.map(async (item) => ({
-      ...item,
-      priceCentavos: await getPriceCentavos(item.documentType),
-    })));
+    // Resolve purok clearance fee once if any Barangay Clearance in the order
+    const hasClearance = items.some((item) => item.documentType === 'Barangay Clearance');
+    const purokFeeCentavos = hasClearance ? await getPurokFeeCentavos(req.user.id) : 0;
 
-    const lineItems = itemsWithPrice.map((item) => ({
-      currency: 'PHP',
-      amount: item.priceCentavos,
-      description: `${item.purpose}${item.additionalDetails ? ` — ${item.additionalDetails}` : ''}`,
-      name: item.documentType,
-      quantity: 1,
+    // Resolve prices for all items
+    const itemsWithPrice = await Promise.all(items.map(async (item) => {
+      const basePriceCentavos = await getPriceCentavos(item.documentType);
+      const itemPurokFee = item.documentType === 'Barangay Clearance' ? purokFeeCentavos : 0;
+      return { ...item, basePriceCentavos, purokFeeCentavos: itemPurokFee };
     }));
+
+    const lineItems = [];
+    for (const item of itemsWithPrice) {
+      lineItems.push({
+        currency: 'PHP',
+        amount: item.basePriceCentavos,
+        description: `${item.purpose}${item.additionalDetails ? ` — ${item.additionalDetails}` : ''}`,
+        name: item.documentType,
+        quantity: 1,
+      });
+      if (item.purokFeeCentavos > 0) {
+        lineItems.push({
+          currency: 'PHP',
+          amount: item.purokFeeCentavos,
+          description: 'Additional purok clearance fee',
+          name: 'Purok Clearance Fee',
+          quantity: 1,
+        });
+      }
+    }
 
     const description = items.length === 1
       ? `iRequestD — ${items[0].documentType}`
@@ -99,6 +127,7 @@ router.post('/create-session', authMiddleware, async (req, res) => {
         paymentStatus: 'unpaid',
         paymentSessionId: sessionId,
         amountPaid: 0,
+        purokClearanceFee: item.purokFeeCentavos / 100,
       })
     ));
 
@@ -145,9 +174,46 @@ router.get('/status/:sessionId', authMiddleware, async (req, res) => {
       await Promise.all(requests.map(async (r) => {
         const PRICE = await getPriceCentavos(r.documentType);
         r.paymentStatus = 'paid';
-        r.amountPaid = PRICE / 100;
+        r.amountPaid = PRICE / 100 + (r.purokClearanceFee || 0);
         await r.save();
       }));
+
+      // Send Purok Clearance form for every Barangay Clearance that includes a purok fee
+      const purokRequests = requests.filter(
+        (r) => r.documentType === 'Barangay Clearance' && (r.purokClearanceFee || 0) > 0
+      );
+      if (purokRequests.length > 0) {
+        try {
+          const [user, profile] = await Promise.all([
+            User.findById(req.user.id).select('email'),
+            VerificationProfile.findOne({ user: req.user.id }).select('fullName address'),
+          ]);
+          if (user?.email && profile) {
+            const purokMatch = (profile.address || '').match(/^(Purok\s+(\d+))/i);
+            const purokName   = purokMatch ? purokMatch[1] : null;
+            const purokNumber = purokMatch ? purokMatch[2] : '—';
+            const purokFeeDoc = purokName
+              ? await PurokClearanceFee.findOne({ purokName }).select('treasurerName purokPresident')
+              : null;
+            const date = new Date().toLocaleDateString('en-PH', {
+              year: 'numeric', month: 'long', day: 'numeric',
+            });
+            for (const r of purokRequests) {
+              await sendPurokClearanceForm(user.email, {
+                fullName: profile.fullName || '—',
+                purokNumber,
+                controlNo: r.orNumber || r._id.toString().slice(-6).toUpperCase(),
+                date,
+                treasurerName:  purokFeeDoc?.treasurerName  || '',
+                purokPresident: purokFeeDoc?.purokPresident || '',
+              });
+            }
+          }
+        } catch (emailErr) {
+          console.error('[Email] Failed to send Purok Clearance form:', emailErr.message);
+        }
+      }
+
       return res.json({ paid: true, requestIds: requests.map((r) => r._id) });
     }
 
@@ -203,6 +269,82 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   } catch (err) {
     console.error('PayMongo webhook error:', err.message);
     res.status(500).json({ message: 'Webhook handling failed' });
+  }
+});
+
+// ── POST /api/payment/retry-session/:requestId ──────────────────────────────
+// Creates a new checkout session for an existing unpaid request.
+router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
+  try {
+    const request = await Request.findOne({
+      _id: req.params.requestId,
+      user: req.user.id,
+      paymentStatus: 'unpaid',
+    });
+    if (!request) {
+      return res.status(404).json({ message: 'Unpaid request not found' });
+    }
+
+    const priceCentavos = await getPriceCentavos(request.documentType);
+    const purokFeeCentavos = Math.round((request.purokClearanceFee || 0) * 100);
+
+    const lineItems = [
+      {
+        currency: 'PHP',
+        amount: priceCentavos,
+        description: request.purpose,
+        name: request.documentType,
+        quantity: 1,
+      },
+    ];
+    if (purokFeeCentavos > 0) {
+      lineItems.push({
+        currency: 'PHP',
+        amount: purokFeeCentavos,
+        description: 'Additional purok clearance fee',
+        name: 'Purok Clearance Fee',
+        quantity: 1,
+      });
+    }
+
+    const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
+    const cancelUrl  = process.env.PAYMENT_CANCEL_URL  || 'https://irequestd.onrender.com/payment/cancel';
+
+    const pmRes = await axios.post(
+      `${PAYMONGO_BASE}/checkout_sessions`,
+      {
+        data: {
+          attributes: {
+            send_email_receipt: true,
+            show_description: true,
+            show_line_items: true,
+            line_items: lineItems,
+            payment_method_types: PAYMENT_METHOD_TYPES,
+            success_url: successUrl,
+            cancel_url: cancelUrl,
+            description: `iRequestD — ${request.documentType}`,
+          },
+        },
+      },
+      {
+        headers: {
+          Authorization: paymongoAuth(),
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const sessionData  = pmRes.data.data;
+    const newSessionId = sessionData.id;
+    const checkoutUrl  = sessionData.attributes.checkout_url;
+
+    request.paymentSessionId = newSessionId;
+    await request.save();
+
+    res.json({ checkoutUrl, sessionId: newSessionId, requestId: request._id });
+  } catch (err) {
+    console.error('PayMongo retry-session error:', err?.response?.data || err.message);
+    res.status(500).json({ message: 'Failed to create retry checkout session' });
   }
 });
 

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'services/api_service.dart';
 import 'request_document_screen.dart';
 
@@ -538,112 +540,464 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
   }
 
   Widget _buildCard(Map<String, dynamic> r) {
-    final status = r['status'] as String? ?? 'Pending';
-    final docType = r['documentType'] as String? ?? r['title'] as String? ?? '—';
-    final reqId = (r['_id'] as String).substring(0, 8).toUpperCase();
+    final status        = r['status']        as String? ?? 'Pending';
+    final paymentStatus = r['paymentStatus'] as String? ?? 'paid';
+    final docType  = r['documentType'] as String? ?? r['title'] as String? ?? '—';
+    final reqId    = (r['_id'] as String).substring(0, 8).toUpperCase();
     final submitted = _formatDate(r['createdAt'] as String);
-    final color = _statusColor(status);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border(left: BorderSide(color: color, width: 4)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header row
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+    final isUnpaid = status == 'Pending' && paymentStatus == 'unpaid';
+    final color = isUnpaid ? const Color(0xFFE65100) : _statusColor(status);
+
+    void openRetrySheet() {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _RetryPaymentSheet(
+          requestId: r['_id'] as String,
+          documentType: docType,
+          onPaid: () {
+            Navigator.pop(context);
+            _loadRequests();
+          },
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: isUnpaid ? openRetrySheet : null,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: isUnpaid ? const Color(0xFFFFF3E0) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border(left: BorderSide(color: color, width: 4)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header row
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(_docIcon(docType), color: color, size: 20),
                   ),
-                  child: Icon(_docIcon(docType), color: color, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(docType,
-                      style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black87)),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(docType,
+                        style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87)),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(_statusIcon(status), size: 13, color: color),
-                      const SizedBox(width: 4),
-                      Text(status,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isUnpaid ? Icons.payment_outlined : _statusIcon(status),
+                          size: 13, color: color,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          isUnpaid ? 'Unpaid' : status,
                           style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: color)),
-                    ],
+                              color: color),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // Request ID + Date
+              Text('REQ-$reqId',
+                  style: const TextStyle(
+                      fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 2),
+              Text('Submitted: $submitted',
+                  style: const TextStyle(fontSize: 12, color: Colors.black45)),
+
+              // Purpose
+              if (r['purpose'] != null) ...[
+                const SizedBox(height: 4),
+                Text('Purpose: ${r['purpose']}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              ],
+
+              // Action row
+              if (isUnpaid) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 40,
+                  child: ElevatedButton.icon(
+                    onPressed: openRetrySheet,
+                    icon: const Icon(Icons.payment_rounded, size: 16),
+                    label: const Text('Complete Payment',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE65100),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24)),
+                      elevation: 0,
+                    ),
                   ),
                 ),
+              ] else if (status == 'Processing') ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: const [
+                    Icon(Icons.info_outline, size: 13, color: Colors.orange),
+                    SizedBox(width: 4),
+                    Text('Being processed by the barangay office',
+                        style: TextStyle(fontSize: 11, color: Colors.orange)),
+                  ],
+                ),
+              ] else if (status == 'Pending') ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: const [
+                    Icon(Icons.schedule_outlined, size: 13, color: Colors.grey),
+                    SizedBox(width: 4),
+                    Text('Queued — awaiting processing',
+                        style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Retry payment bottom sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum _RetryState { idle, creating, awaitingPayment, polling, paid, error }
+
+class _RetryPaymentSheet extends StatefulWidget {
+  final String requestId;
+  final String documentType;
+  final VoidCallback onPaid;
+
+  const _RetryPaymentSheet({
+    required this.requestId,
+    required this.documentType,
+    required this.onPaid,
+  });
+
+  @override
+  State<_RetryPaymentSheet> createState() => _RetryPaymentSheetState();
+}
+
+class _RetryPaymentSheetState extends State<_RetryPaymentSheet> {
+  static const Color _orange = Color(0xFFE65100);
+  static const Color _green  = Color(0xFF1A6B1A);
+
+  _RetryState _state = _RetryState.idle;
+  String? _sessionId;
+  String? _checkoutUrl;
+  String? _errorMsg;
+  Timer? _pollTimer;
+  int _pollCount = 0;
+  static const _maxPolls = 40;
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _createAndPay() async {
+    setState(() { _state = _RetryState.creating; _errorMsg = null; });
+    try {
+      final result = await ApiService.retryPaymentSession(widget.requestId);
+      if (result['statusCode'] != 200) {
+        setState(() {
+          _state = _RetryState.error;
+          _errorMsg = result['message'] as String? ?? 'Failed to create payment link';
+        });
+        return;
+      }
+
+      _sessionId   = result['sessionId']   as String;
+      _checkoutUrl = result['checkoutUrl'] as String;
+
+      final uri = Uri.parse(_checkoutUrl!);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+
+      setState(() => _state = _RetryState.awaitingPayment);
+      _startPolling();
+    } catch (_) {
+      setState(() {
+        _state = _RetryState.error;
+        _errorMsg = 'Connection error. Please try again.';
+      });
+    }
+  }
+
+  void _startPolling() {
+    _pollCount = 0;
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (!mounted) return;
+      _pollCount++;
+      if (_pollCount > _maxPolls) {
+        _pollTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _state = _RetryState.error;
+            _errorMsg = 'Payment timed out. If you already paid, it will reflect shortly.';
+          });
+        }
+        return;
+      }
+
+      setState(() => _state = _RetryState.polling);
+      try {
+        final status = await ApiService.checkPaymentStatus(_sessionId!);
+        if (status['paid'] == true) {
+          _pollTimer?.cancel();
+          if (mounted) setState(() => _state = _RetryState.paid);
+          await Future.delayed(const Duration(milliseconds: 1200));
+          if (mounted) widget.onPaid();
+        } else {
+          if (mounted) setState(() => _state = _RetryState.awaitingPayment);
+        }
+      } catch (_) {
+        if (mounted) setState(() => _state = _RetryState.awaitingPayment);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+          24, 20, 24, MediaQuery.of(context).viewInsets.bottom + 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.black12,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.payment_rounded,
+                    color: _orange, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Complete Payment',
+                        style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black87)),
+                    Text(widget.documentType,
+                        style: const TextStyle(
+                            fontSize: 12, color: Colors.black45)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const Divider(),
+          const SizedBox(height: 16),
+
+          _buildStateContent(),
+          const SizedBox(height: 8),
+
+          Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.lock_outline_rounded, size: 12, color: Colors.black38),
+                SizedBox(width: 4),
+                Text('Secured by PayMongo',
+                    style: TextStyle(fontSize: 11, color: Colors.black38)),
               ],
             ),
-            const SizedBox(height: 10),
+          ),
+        ],
+      ),
+    );
+  }
 
-            // Request ID + Date
-            Text('REQ-$reqId',
-                style: const TextStyle(
-                    fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 2),
-            Text('Submitted: $submitted',
-                style: const TextStyle(fontSize: 12, color: Colors.black45)),
+  Widget _buildStateContent() {
+    switch (_state) {
+      case _RetryState.idle:
+        return SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton.icon(
+            onPressed: _createAndPay,
+            icon: const Icon(Icons.open_in_browser_rounded),
+            label: const Text('Pay via PayMongo',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _orange,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(32)),
+            ),
+          ),
+        );
 
-            // Purpose
-            if (r['purpose'] != null) ...[
-              const SizedBox(height: 4),
-              Text('Purpose: ${r['purpose']}',
-                  style: const TextStyle(fontSize: 12, color: Colors.black54)),
-            ],
+      case _RetryState.creating:
+        return _statusTile(
+          Icons.hourglass_top_rounded, Colors.orange,
+          'Creating payment link…', 'Please wait',
+        );
 
-            // Action row
-            if (status == 'Processing') ...[
-              const SizedBox(height: 8),
-              Row(
-                children: const [
-                  Icon(Icons.info_outline, size: 13, color: Colors.orange),
-                  SizedBox(width: 4),
-                  Text('Being processed by the barangay office',
-                      style: TextStyle(fontSize: 11, color: Colors.orange)),
-                ],
+      case _RetryState.awaitingPayment:
+      case _RetryState.polling:
+        return Column(
+          children: [
+            _statusTile(
+              Icons.open_in_browser_rounded, _green,
+              'Complete payment in your browser',
+              'Waiting for confirmation…',
+              showSpinner: true,
+            ),
+            const SizedBox(height: 12),
+            if (_checkoutUrl != null)
+              TextButton.icon(
+                onPressed: () async {
+                  final uri = Uri.parse(_checkoutUrl!);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Reopen payment page'),
+                style: TextButton.styleFrom(foregroundColor: _green),
               ),
-            ] else if (status == 'Pending') ...[
-              const SizedBox(height: 8),
-              Row(
-                children: const [
-                  Icon(Icons.schedule_outlined, size: 13, color: Colors.grey),
-                  SizedBox(width: 4),
-                  Text('Queued — awaiting processing',
-                      style: TextStyle(fontSize: 11, color: Colors.grey)),
-                ],
-              ),
-            ],
           ],
-        ),
+        );
+
+      case _RetryState.paid:
+        return _statusTile(
+          Icons.check_circle_rounded, Colors.green,
+          'Payment confirmed!', 'Updating your request…',
+        );
+
+      case _RetryState.error:
+        return Column(
+          children: [
+            _statusTile(
+              Icons.error_outline_rounded, Colors.redAccent,
+              'Something went wrong', _errorMsg ?? 'Please try again.',
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () => setState(() {
+                  _state = _RetryState.idle;
+                  _errorMsg = null;
+                }),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _orange,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(32)),
+                ),
+                child: const Text('Try Again'),
+              ),
+            ),
+          ],
+        );
+    }
+  }
+
+  Widget _statusTile(IconData icon, Color color, String title, String subtitle,
+      {bool showSpinner = false}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          showSpinner
+              ? SizedBox(
+                  width: 24, height: 24,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2.5, color: color))
+              : Icon(icon, color: color, size: 24),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: color)),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style: const TextStyle(
+                        fontSize: 12, color: Colors.black54)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

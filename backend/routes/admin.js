@@ -6,6 +6,9 @@ const User    = require('../models/User');
 const VerificationProfile = require('../models/VerificationProfile');
 const Request = require('../models/Request');
 const DocumentPrice = require('../models/DocumentPrice');
+const PurokClearanceFee = require('../models/PurokClearanceFee');
+
+const DOLOGON_PUROKS = Array.from({ length: 21 }, (_, i) => `Purok ${i + 1}`);
 
 const DEFAULT_PRICES = [
   { documentType: 'Barangay Clearance',       pricecentavos: 10000, description: 'Standard processing fee for barangay clearance (₱100.00)' },
@@ -78,6 +81,48 @@ router.get('/prices', async (req, res) => {
       prices = await DocumentPrice.insertMany(DEFAULT_PRICES);
     }
     res.json(prices);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── GET /api/admin/purok-fees ─────────────────────────────────────────────────
+// Public — Flutter app reads purok clearance fees.
+router.get('/purok-fees', async (req, res) => {
+  try {
+    // Upsert all 21 puroks — new records get ₱50 default + empty officer fields
+    await PurokClearanceFee.bulkWrite(
+      DOLOGON_PUROKS.map((purokName) => ({
+        updateOne: {
+          filter: { purokName },
+          update: {
+            $setOnInsert: {
+              purokName,
+              feecentavos: 5000,
+              treasurerName: '',
+              purokPresident: '',
+              description: '₱50.00 purok clearance fee',
+            },
+          },
+          upsert: true,
+        },
+      }))
+    );
+
+    // Migrate old records that were seeded with 0 fee
+    await PurokClearanceFee.updateMany({ feecentavos: 0 }, {
+      $set: { feecentavos: 5000, description: '₱50.00 purok clearance fee' },
+    });
+
+    // Add missing officer fields to existing records that predate the schema change
+    await PurokClearanceFee.updateMany(
+      { treasurerName: { $exists: false } },
+      { $set: { treasurerName: '', purokPresident: '' } }
+    );
+
+    const fees = await PurokClearanceFee.find().sort('purokName');
+    res.json(fees);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -225,6 +270,35 @@ router.put('/prices/:documentType', adminAuth, async (req, res) => {
     );
 
     res.json(price);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── PUT /api/admin/purok-fees/:purokName ──────────────────────────────────────
+// Admin only — set fee, treasurer, and president for a specific purok.
+router.put('/purok-fees/:purokName', async (req, res) => {
+  try {
+    const { feecentavos, treasurerName, purokPresident, description } = req.body;
+    if (feecentavos === undefined || typeof feecentavos !== 'number' || feecentavos < 0) {
+      return res.status(400).json({ message: 'feecentavos must be a non-negative number' });
+    }
+
+    const purokName = decodeURIComponent(req.params.purokName);
+    const fee = await PurokClearanceFee.findOneAndUpdate(
+      { purokName },
+      {
+        feecentavos,
+        treasurerName: treasurerName ?? '',
+        purokPresident: purokPresident ?? '',
+        description: description ?? '',
+        updatedBy: req.admin?.username ?? 'admin',
+      },
+      { new: true, upsert: true }
+    );
+
+    res.json(fee);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
