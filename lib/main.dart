@@ -58,7 +58,7 @@ void main() async {
 
 Widget _resolveHome(String? status, int step) {
   if (status == 'approved') return const DashboardScreen();
-  if (status == 'pending' || status == 'under_review') return const VerificationWaitingScreen();
+  if (status == 'pending' || status == 'under review' || status == 'under_review') return const VerificationWaitingScreen();
   if (step >= 3) return const IdVerificationScreen();
   if (step >= 2) return const EducationScreen();
   return const DemographicScreen();

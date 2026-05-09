@@ -26,77 +26,24 @@ class _VerificationWaitingScreenState
 
   Future<void> _fetchStatus() async {
     try {
-      final result = await ApiService.getVerificationStatus();
+      // getMe() fetches fresh user data so accountStatus reflects what's in MongoDB
+      final user = await ApiService.getMe() ?? await ApiService.getUser();
       if (mounted) {
         setState(() {
-          _status = (result['status'] as String?)?.toLowerCase();
+          _status = (user?['accountStatus'] as String?)?.toLowerCase();
           _loading = false;
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  void _showStatusDialog(BuildContext context) async {
-    final result = await ApiService.getVerificationStatus();
-    if (!context.mounted) return;
-
-    final submittedAt = result['submittedAt'] as String?;
-    String dateStr = 'Unknown';
-    if (submittedAt != null) {
-      final dt = DateTime.tryParse(submittedAt);
-      if (dt != null) {
-        const months = [
-          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-        ];
-        dateStr =
-            '${months[dt.month - 1]} ${dt.day}, ${dt.year}  ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+      // Fall back to cached user on network error
+      final user = await ApiService.getUser();
+      if (mounted) {
+        setState(() {
+          _status = (user?['accountStatus'] as String?)?.toLowerCase();
+          _loading = false;
+        });
       }
     }
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Submission Details',
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _detailRow('Status', result['status'] ?? 'Pending', Colors.orange),
-            const SizedBox(height: 8),
-            _detailRow('Submitted', dateStr, Colors.black54),
-            const SizedBox(height: 16),
-            const Text('Submitted Items:',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-            const SizedBox(height: 6),
-            _checkItem('Demographic Profile'),
-            _checkItem('Educational Attainment'),
-            _checkItem('ID Documents'),
-            _checkItem('Face Recognition'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(color: _green)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static Widget _detailRow(String label, String value, Color valueColor) {
-    return Row(
-      children: [
-        Text('$label: ',
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-        Text(value, style: TextStyle(color: valueColor, fontSize: 13)),
-      ],
-    );
   }
 
   static Widget _checkItem(String text) {
@@ -127,9 +74,7 @@ class _VerificationWaitingScreenState
   }
 
   bool get _isUnderReview =>
-      _status == 'under review' ||
-      _status == 'under_review' ||
-      _status == 'underreview';
+      _status == 'under review' || _status == 'under_review';
 
   Widget _buildUnderReviewBody(BuildContext context) {
     return Center(
@@ -202,26 +147,6 @@ class _VerificationWaitingScreenState
               ),
             ),
             const SizedBox(height: 28),
-
-            // Check status
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton(
-                onPressed: () => _showStatusDialog(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _green,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(32)),
-                  elevation: 0,
-                ),
-                child: const Text('Check Status',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              ),
-            ),
-            const SizedBox(height: 12),
 
             // Back to home
             SizedBox(
@@ -358,26 +283,6 @@ class _VerificationWaitingScreenState
               ),
             ),
             const SizedBox(height: 28),
-
-            // Check status
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton(
-                onPressed: () => _showStatusDialog(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _green,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(32)),
-                  elevation: 0,
-                ),
-                child: const Text('Check Status',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              ),
-            ),
-            const SizedBox(height: 12),
 
             // Back to home
             SizedBox(

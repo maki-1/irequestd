@@ -84,6 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (verificationStatus == 'approved') {
       destination = const DashboardScreen();
     } else if (verificationStatus == 'pending' ||
+        verificationStatus == 'under review' ||
         verificationStatus == 'under_review') {
       destination = const VerificationWaitingScreen();
     } else if (verificationStatus == 'draft' || verificationStatus == null) {
