@@ -6,9 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
-  // static const String _baseUrl = 'https://irequestd.onrender.com/api';
+  static const String _baseUrl = 'https://irequestd.onrender.com/api';
   // static const String _baseUrl = 'http://192.168.1.43:5000/api'; // Physical device
-  static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web/
+  // static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web/
 
   // ── Token helpers ────────────────────────────────────────────────────────────
 
