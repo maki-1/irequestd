@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../login_screen.dart';
 import '../services/api_service.dart';
+import '../services/llama_service.dart';
 import 'step_progress_bar.dart';
 import 'education_screen.dart';
 
@@ -62,6 +63,11 @@ class _DemographicScreenState extends State<DemographicScreen> {
   XFile? _proofFile;
   Uint8List? _proofBytes;
 
+  // Proof document validation state
+  bool _proofValidating = false;
+  bool? _proofValid;        // null = not checked, true = valid, false = rejected
+  String _proofInvalidReason = '';
+
   bool _isLoading = false;
   bool _agreedToTerms = false;
 
@@ -118,6 +124,14 @@ class _DemographicScreenState extends State<DemographicScreen> {
 
     if (_proofRequired && _proofFile == null) {
       _showError('Please attach your $_proofLabel.');
+      return;
+    }
+    if (_proofRequired && _proofValid == false) {
+      _showError('The uploaded document does not appear to be a valid $_proofLabel. Please upload the correct document.');
+      return;
+    }
+    if (_proofRequired && _proofValidating) {
+      _showError('Please wait — verifying your document.');
       return;
     }
 
@@ -211,22 +225,55 @@ class _DemographicScreenState extends State<DemographicScreen> {
     setState(() {
       _proofFile = file;
       _proofBytes = bytes;
+      _proofValid = null;
+      _proofInvalidReason = '';
+    });
+    await _validateProof(bytes);
+  }
+
+  Future<void> _validateProof(Uint8List bytes) async {
+    final docType = _proofLabel;
+    if (docType.isEmpty) return;
+
+    setState(() => _proofValidating = true);
+    final result = await LlamaService.validateProofDocument(
+      imageBytes: bytes,
+      expectedDocType: docType,
+    );
+    if (!mounted) return;
+    setState(() {
+      _proofValidating = false;
+      _proofValid = result.valid;
+      _proofInvalidReason = result.reason;
+    });
+  }
+
+  void _clearProof() {
+    setState(() {
+      _proofFile = null;
+      _proofBytes = null;
+      _proofValid = null;
+      _proofValidating = false;
+      _proofInvalidReason = '';
     });
   }
 
   Widget _buildProofUpload() {
+    final borderColor = _proofFile == null
+        ? Colors.white30
+        : _proofValid == false
+            ? Colors.redAccent
+            : Colors.white54;
+
     return GestureDetector(
-      onTap: _pickProofDocument,
+      onTap: _proofValidating ? null : _pickProofDocument,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 20),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.12),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _proofFile != null ? const Color(0xFF4CFF4C) : Colors.white30,
-            width: 1.5,
-          ),
+          border: Border.all(color: borderColor, width: 1.5),
         ),
         child: _proofFile == null
             ? Column(
@@ -247,25 +294,59 @@ class _DemographicScreenState extends State<DemographicScreen> {
                       borderRadius: BorderRadius.circular(8),
                       child: Image.memory(_proofBytes!, height: 100, fit: BoxFit.cover),
                     ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.check_circle_rounded,
-                          size: 14, color: Color(0xFF4CFF4C)),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(_proofFile!.name,
-                            style: const TextStyle(color: Colors.white70, fontSize: 12),
-                            overflow: TextOverflow.ellipsis),
-                      ),
-                    ],
-                  ),
+                  const SizedBox(height: 10),
+
+                  // Validation status
+                  if (_proofValidating)
+                    const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 14, height: 14,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white54),
+                        ),
+                        SizedBox(width: 8),
+                        Text('Verifying document…',
+                            style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      ],
+                    )
+                  else if (_proofValid == false)
+                    Column(
+                      children: [
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.cancel_rounded,
+                                size: 16, color: Colors.redAccent),
+                            SizedBox(width: 6),
+                            Text('Invalid document',
+                                style: TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ],
+                    )
+                  else
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.insert_drive_file_outlined,
+                            size: 14, color: Colors.white54),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(_proofFile!.name,
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 12),
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                    ),
+
                   TextButton.icon(
-                    onPressed: () => setState(() {
-                      _proofFile = null;
-                      _proofBytes = null;
-                    }),
+                    onPressed: _proofValidating ? null : _clearProof,
                     icon: const Icon(Icons.close, size: 14, color: Colors.redAccent),
                     label: const Text('Remove',
                         style: TextStyle(color: Colors.redAccent, fontSize: 12)),

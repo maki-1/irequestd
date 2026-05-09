@@ -46,10 +46,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     'Other',
   ];
 
-  static const _deliveryMethods = [
-    'Pick up at Barangay Office',
-  ];
-
   static const _docIcons = {
     'Barangay Clearance': Icons.assignment_outlined,
     'Certificate of Residency': Icons.home_outlined,
@@ -58,7 +54,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
 
   final Set<String> _selectedDocs = {};
   String? _purpose;
-  String? _deliveryMethod;
   final _detailsController = TextEditingController();
   bool _isLoading = false;
 
@@ -144,14 +139,12 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   bool get _canProceed =>
       _selectedDocs.isNotEmpty &&
       _purpose != null &&
-      _deliveryMethod != null &&
       (!_proofRequired || _proofBytes != null);
 
   List<Map<String, String>> get _items => _selectedDocs.map((doc) => {
     'documentType': doc,
     'purpose': _purpose!,
     'additionalDetails': _detailsController.text.trim(),
-    'deliveryMethod': _deliveryMethod!,
   }).toList();
 
   Future<void> _submitFree() async {
@@ -292,16 +285,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                 _buildProofUpload(),
               const SizedBox(height: 20),
             ],
-
-            _sectionLabel('Delivery Method *'),
-            const SizedBox(height: 8),
-            ..._deliveryMethods.map((m) => _radioCard(
-                  value: m,
-                  groupValue: _deliveryMethod,
-                  icon: Icons.store_outlined,
-                  onChanged: (v) => setState(() => _deliveryMethod = v),
-                )),
-            const SizedBox(height: 24),
 
             // Price summary card
             if (_selectedDocs.isNotEmpty)
@@ -674,48 +657,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black87),
       );
 
-  Widget _radioCard({
-    required String value,
-    required String? groupValue,
-    required IconData icon,
-    required void Function(String?) onChanged,
-  }) {
-    final selected = groupValue == value;
-    return GestureDetector(
-      onTap: () => onChanged(value),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFFE8F5E9) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? _green : Colors.black12,
-            width: selected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: selected ? _green : Colors.black38, size: 22),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(value,
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: selected ? _green : Colors.black87)),
-            ),
-            Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? _green : Colors.black26,
-              size: 20,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _dropdown({
     required String? value,
     required String hint,
@@ -905,7 +846,6 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               '₱${widget.purokClearanceFee.toStringAsFixed(2)}',
             ),
           _summaryRow(Icons.info_outline_rounded, 'Purpose', widget.items.first['purpose']!),
-          _summaryRow(Icons.store_outlined, 'Delivery', widget.items.first['deliveryMethod']!),
           const Divider(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

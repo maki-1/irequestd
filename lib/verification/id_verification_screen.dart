@@ -949,8 +949,14 @@ class _IdCameraPageState extends State<_IdCameraPage>
           debugPrint('[LLaMA] call failed — falling back to ML Kit OCR check only');
         }
       } else if (!widget.isFront) {
-        // Back scan: use LLaMA to confirm this is actually the back of the ID
-        final llama = await LlamaService.analyzeId(bytes);
+        // Back scan: use LLaMA to confirm this is actually the back of the ID.
+        // For Driver's License, pass a reference image so the model has a known sample.
+        final llama = await LlamaService.analyzeId(
+          bytes,
+          referenceImageUrl: widget.idName == "Driver's License"
+              ? 'https://res.cloudinary.com/dvw7ky1xq/image/upload/v1778335861/688937097_976893938396660_5923693942681634856_n_vjffsv.jpg'
+              : null,
+        );
         debugPrint('[LLaMA back] success=${llama.success} side=${llama.side}');
         if (llama.success && llama.side == 'front') {
           if (mounted) {

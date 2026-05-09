@@ -333,36 +333,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: _showChangePasswordSheet,
           ),
 
-          // ── NOTIFICATIONS section ────────────────────────────────────
-          _sectionHeader('NOTIFICATIONS'),
-          _toggleTile(
-            icon: Icons.sms_outlined,
-            title: 'SMS Notifications',
-            value: _smsNotif,
-            onChanged: (v) {
-              setState(() => _smsNotif = v);
-              _saveNotif('notif_sms', v);
-            },
-          ),
-          _toggleTile(
-            icon: Icons.email_outlined,
-            title: 'Email Notifications',
-            value: _emailNotif,
-            onChanged: (v) {
-              setState(() => _emailNotif = v);
-              _saveNotif('notif_email', v);
-            },
-          ),
-          _toggleTile(
-            icon: Icons.notifications_outlined,
-            title: 'Push Notifications',
-            value: _pushNotif,
-            onChanged: (v) {
-              setState(() => _pushNotif = v);
-              _saveNotif('notif_push', v);
-            },
-          ),
-
           // ── SUPPORT section ─────────────────────────────────────────
           _sectionHeader('SUPPORT'),
           _menuTile(

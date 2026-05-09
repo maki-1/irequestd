@@ -68,9 +68,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // Derives account type label, icon, and color from verification profile fields.
+  ({String label, IconData icon, Color color, Color bg}) _accountType(
+      Map<String, dynamic> p) {
+    final isPwd = p['isPwd'] == true;
+    final age = (p['age'] as num?)?.toInt() ?? 0;
+    if (isPwd) {
+      return (
+        label: 'Special Account (PWD)',
+        icon: Icons.accessible_outlined,
+        color: const Color(0xFF6A1B9A),
+        bg: const Color(0xFFF3E5F5),
+      );
+    }
+    if (age >= 60) {
+      return (
+        label: 'Senior Account',
+        icon: Icons.elderly_outlined,
+        color: const Color(0xFFE65100),
+        bg: const Color(0xFFFFF3E0),
+      );
+    }
+    if (age > 0 && age < 18) {
+      return (
+        label: 'Minor Account',
+        icon: Icons.child_care_outlined,
+        color: const Color(0xFF1565C0),
+        bg: const Color(0xFFE3F2FD),
+      );
+    }
+    return (
+      label: 'Regular Account',
+      icon: Icons.person_outline_rounded,
+      color: _green,
+      bg: const Color(0xFFE8F5E9),
+    );
+  }
+
   Widget _buildContent() {
     final p = _profile!;
-    final isPwd = p['isPwd'] == true;
+    final acct = _accountType(p);
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -107,26 +144,77 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 '@${p['username'] ?? ''}',
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
-              if (isPwd) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.accessibility_new_rounded, size: 14, color: _green),
-                      SizedBox(width: 4),
-                      Text('PWD',
-                          style: TextStyle(
-                              color: _green, fontSize: 12, fontWeight: FontWeight.w700)),
-                    ],
-                  ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
                 ),
-              ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(acct.icon, size: 15, color: acct.color),
+                    const SizedBox(width: 6),
+                    Text(acct.label,
+                        style: TextStyle(
+                            color: acct.color,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        // Account type info card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: acct.bg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: acct.color.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: acct.color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(acct.icon, color: acct.color, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Account Type',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: acct.color.withValues(alpha: 0.7),
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.5)),
+                    const SizedBox(height: 2),
+                    Text(acct.label,
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: acct.color)),
+                    const SizedBox(height: 4),
+                    Text(_accountTypeDescription(acct.label),
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: acct.color.withValues(alpha: 0.65),
+                            height: 1.4)),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -209,6 +297,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _row(IconData icon, String label, dynamic rawValue) {
     final value = rawValue?.toString().trim() ?? '';
     return _InfoRow(icon: icon, label: label, value: value);
+  }
+
+  String _accountTypeDescription(String label) {
+    switch (label) {
+      case 'Special Account (PWD)':
+        return 'Eligible for free document requests as a Person with Disability.';
+      case 'Senior Account':
+        return 'Eligible for free document requests as a Senior Citizen (60+).';
+      case 'Minor Account':
+        return 'Eligible for free document requests as a minor (below 18 years old).';
+      default:
+        return 'Standard barangay resident account.';
+    }
   }
 
   String _initials(String name) {

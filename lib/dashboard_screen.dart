@@ -36,6 +36,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _avatarFilename = '';
   String _accountStatus = 'draft';   // draft | pending | approved | rejected
   bool _isVerified = false;
+  bool _isPwd = false;
+  int _age = 0;
   Map<String, dynamic> _summary = {
     'total': 0, 'pending': 0, 'processing': 0, 'ready': 0, 'rejected': 0
   };
@@ -196,6 +198,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _avatarFilename = user?['avatar'] as String? ?? '';
         _accountStatus = user?['accountStatus'] as String? ?? 'draft';
         _isVerified = user?['isVerified'] as bool? ?? false;
+        _isPwd = user?['isPwd'] == true;
+        _age = (user?['age'] as num?)?.toInt() ?? 0;
         _summary = results[0] as Map<String, dynamic>;
         _requests = results[1] as List<dynamic>;
         _readyForPickup = results[2] as List<dynamic>;
@@ -207,9 +211,126 @@ class _DashboardScreenState extends State<DashboardScreen> {
         claimed: results[3] as List<dynamic>,
         requests: results[1] as List<dynamic>,
       );
+      await _checkAndShowWelcome();
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _checkAndShowWelcome() async {
+    final prefs = await SharedPreferences.getInstance();
+    final shown = prefs.getBool('welcome_shown') ?? false;
+    if (shown || !mounted) return;
+    await prefs.setBool('welcome_shown', true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _showWelcomeDialog();
+    });
+  }
+
+  void _showWelcomeDialog() {
+    final name = _firstName.isNotEmpty ? _firstName : _username;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 48),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5E9),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.waving_hand_rounded,
+                    color: Color(0xFF1A6B1A), size: 40),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Welcome, $name!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.black87),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Your account has been created successfully. You\'re now part of the Dologon Barangay community.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: Colors.black54, height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F6F4),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: const [
+                    Icon(Icons.person_add_alt_1_rounded,
+                        color: Color(0xFF1A6B1A), size: 28),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Complete Your Profile',
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black87)),
+                          SizedBox(height: 2),
+                          Text('Add a profile picture so the\nbarangay can identify you.',
+                              style: TextStyle(fontSize: 12, color: Colors.black45, height: 1.4)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.add_a_photo_rounded, size: 18),
+                  label: const Text('Add Profile Picture',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1A6B1A),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(32)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('I\'ll do it later',
+                    style: TextStyle(color: Colors.black45, fontSize: 13)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   String _timeAgo(String iso) {
@@ -1019,8 +1140,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  ({String label, IconData icon, Color color}) _accountTypeInfo() {
+    if (_isPwd) {
+      return (label: 'Special Account (PWD)', icon: Icons.accessible_outlined, color: const Color(0xFF6A1B9A));
+    }
+    if (_age >= 60) {
+      return (label: 'Senior Account', icon: Icons.elderly_outlined, color: const Color(0xFFE65100));
+    }
+    if (_age > 0 && _age < 18) {
+      return (label: 'Minor Account', icon: Icons.child_care_outlined, color: const Color(0xFF1565C0));
+    }
+    return (label: 'Regular Account', icon: Icons.person_outline_rounded, color: _green);
+  }
+
   Widget _accountStatusCard() {
     final cfg = _statusConfig(_accountStatus, _isVerified);
+    final acct = _accountTypeInfo();
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1028,33 +1163,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border(left: BorderSide(color: cfg.color, width: 4)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: cfg.color.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(cfg.icon, color: cfg.color, size: 22),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: cfg.color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(cfg.icon, color: cfg.color, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(cfg.label,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: cfg.color)),
+                    if (cfg.subtitle != null)
+                      Text(cfg.subtitle!,
+                          style: const TextStyle(
+                              fontSize: 11, color: Colors.black45)),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          if (_age > 0 || _isPwd) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            Row(
               children: [
-                Text(cfg.label,
+                Icon(acct.icon, size: 14, color: acct.color),
+                const SizedBox(width: 6),
+                Text(acct.label,
                     style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: cfg.color)),
-                if (cfg.subtitle != null)
-                  Text(cfg.subtitle!,
-                      style: const TextStyle(
-                          fontSize: 11, color: Colors.black45)),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: acct.color)),
               ],
             ),
-          ),
+          ],
         ],
       ),
     );

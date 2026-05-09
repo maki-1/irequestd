@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:image/image.dart' as img_lib;
 import '../login_screen.dart';
 import '../services/api_service.dart';
 import '../services/llama_service.dart';
@@ -258,7 +259,36 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
 
             if (idImage != null) {
               setState(() => _step = _LivenessStep.verifying);
-              final match = await LlamaService.compareFaces(idImage, finalBytes);
+
+              // Crop the face from the selfie so both images are face-only.
+              // This gives LLaMA a fair, equal-scale comparison.
+              Uint8List selfieImage = finalBytes;
+              try {
+                final selfieInput = InputImage.fromFilePath(finalPhoto.path);
+                final selfieFaces = await _faceDetector.processImage(selfieInput);
+                if (selfieFaces.isNotEmpty) {
+                  final bbox = selfieFaces.first.boundingBox;
+                  final decoded = img_lib.decodeImage(finalBytes);
+                  if (decoded != null) {
+                    // Add 30% padding around the detected face for better context
+                    final padW = (bbox.width  * 0.30).toInt();
+                    final padH = (bbox.height * 0.30).toInt();
+                    final x = (bbox.left.toInt()   - padW).clamp(0, decoded.width  - 1);
+                    final y = (bbox.top.toInt()    - padH).clamp(0, decoded.height - 1);
+                    final w = (bbox.width.toInt()  + padW * 2).clamp(1, decoded.width  - x);
+                    final h = (bbox.height.toInt() + padH * 2).clamp(1, decoded.height - y);
+                    final cropped = img_lib.copyCrop(decoded, x: x, y: y, width: w, height: h);
+                    selfieImage = Uint8List.fromList(img_lib.encodeJpg(cropped, quality: 90));
+                    debugPrint('[Face compare] selfie face cropped ${w}x${h}');
+                  }
+                } else {
+                  debugPrint('[Face compare] no face detected in selfie — using full frame');
+                }
+              } catch (e) {
+                debugPrint('[Face compare] selfie crop error: $e — using full frame');
+              }
+
+              final match = await LlamaService.compareFaces(idImage, selfieImage);
               debugPrint('[LLaMA face] same_person=$match');
               if (!mounted) return;
               if (match == false) {
