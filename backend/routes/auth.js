@@ -55,10 +55,6 @@ router.get('/me', authMiddleware, async (req, res) => {
 
     const profile = await VerificationProfile.findOne({ user: user._id });
 
-    const address = profile?.address || '';
-    const purokMatch = address.match(/^(Purok\s+\d+)/i);
-    const purok = purokMatch ? purokMatch[1] : null;
-
     res.json({
       id: user._id,
       username: user.username,
@@ -72,7 +68,6 @@ router.get('/me', authMiddleware, async (req, res) => {
       isPwd: profile?.isPwd || false,
       age: profile?.age || null,
       hasFreeProof: !!(profile?.freeProofDocument),
-      purok,
     });
   } catch (err) {
     console.error(err);

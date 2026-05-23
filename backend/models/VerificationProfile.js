@@ -11,9 +11,10 @@ const verificationProfileSchema = new mongoose.Schema(
     // Step 1 – Demographic
     fullName: { type: String, default: '' },
     address: { type: String, default: '' },
-    age: { type: Number, default: null },
-    gender: { type: String, default: '' },
-    yearsAtAddress: { type: String, default: '' },
+    birthday: { type: Date, default: null },
+    sex: { type: String, default: '' },
+    indigent: { type: String, default: '' },
+    yearsOfResidency: { type: String, default: '' },
     motherName: { type: String, default: '' },
     fatherName: { type: String, default: '' },
     isPwd: { type: Boolean, default: false },

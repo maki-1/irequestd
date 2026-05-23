@@ -413,32 +413,20 @@ class ApiService {
   // ── Payment endpoints ─────────────────────────────────────────────────────
 
   /// Creates a PayMongo checkout session for one or more documents.
-  /// Sends multipart so the required camera photo can be attached.
   /// Returns { checkoutUrl, sessionId, requestIds } on success.
   static Future<Map<String, dynamic>> createCheckoutSession({
     required List<Map<String, String>> items,
-    required Uint8List requestPhotoBytes,
-    required String requestPhotoFileName,
   }) async {
-    final token = await getToken();
-    final request = http.MultipartRequest(
-      'POST',
+    final res = await http.post(
       Uri.parse('$_baseUrl/payment/create-session'),
+      headers: await _authHeaders(),
+      body: jsonEncode({'items': items}),
     );
-    if (token != null) request.headers['Authorization'] = 'Bearer $token';
-    request.fields['items'] = jsonEncode(items);
-    request.files.add(http.MultipartFile.fromBytes(
-      'requestPhoto',
-      requestPhotoBytes,
-      filename: requestPhotoFileName,
-    ));
-    final streamed = await request.send();
-    final res = await http.Response.fromStream(streamed);
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return {'statusCode': res.statusCode, ...body};
   }
 
-  /// Creates multiple free requests in one call.
+  /// Creates multiple free requests in one call (for PWD / Senior / Minor).
   static Future<Map<String, dynamic>> createBulkRequest({
     required List<Map<String, String>> items,
     required Uint8List requestPhotoBytes,

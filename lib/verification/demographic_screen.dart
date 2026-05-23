@@ -23,7 +23,6 @@ class _DemographicScreenState extends State<DemographicScreen> {
   static const _fixedMunicipality = 'Maramag';
   static const _fixedBarangay = 'Dologon';
 
-  // Hardcoded Dologon puroks (PSGC has no purok-level data)
   static const _dologonPuroks = [
     'Purok 1',
     'Purok 2',
@@ -48,16 +47,20 @@ class _DemographicScreenState extends State<DemographicScreen> {
     'Purok 21',
   ];
 
+  static const _indigentOptions = ['Yes', 'No', 'Others'];
+
   final _formKey = GlobalKey<FormState>();
   final _fullNameController = TextEditingController();
   final _houseStreetController = TextEditingController();
-  final _ageController = TextEditingController();
   final _yearsAtAddressController = TextEditingController();
   final _motherNameController = TextEditingController();
   final _fatherNameController = TextEditingController();
+  final _indigentOtherController = TextEditingController();
 
-  String? _gender;
+  String? _sex;
   String? _pwdStatus;
+  String? _indigentStatus;
+  DateTime? _selectedBirthday;
 
   // Unified proof document — PWD ID, PSA Birth Cert, or Senior Citizen Card
   XFile? _proofFile;
@@ -65,20 +68,30 @@ class _DemographicScreenState extends State<DemographicScreen> {
 
   // Proof document validation state
   bool _proofValidating = false;
-  bool? _proofValid;        // null = not checked, true = valid, false = rejected
+  bool? _proofValid;
   String _proofInvalidReason = '';
 
   bool _isLoading = false;
   bool _agreedToTerms = false;
+  bool _agreedToCredentials = false;
 
   static const _provinceName = 'Bukidnon';
 
   String? _selectedPurok;
 
-  static const _genders = ['Male', 'Female'];
+  static const _sexOptions = ['Male', 'Female'];
 
-
-  int? get _ageInt => int.tryParse(_ageController.text.trim());
+  int? get _ageInt {
+    if (_selectedBirthday == null) return null;
+    final today = DateTime.now();
+    int age = today.year - _selectedBirthday!.year;
+    if (today.month < _selectedBirthday!.month ||
+        (today.month == _selectedBirthday!.month &&
+            today.day < _selectedBirthday!.day)) {
+      age--;
+    }
+    return age;
+  }
 
   bool get _proofRequired =>
       _pwdStatus == 'Yes' ||
@@ -92,25 +105,64 @@ class _DemographicScreenState extends State<DemographicScreen> {
     return '';
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _ageController.addListener(() => setState(() {}));
+  String _formatBirthday(DateTime date) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
   @override
   void dispose() {
     _fullNameController.dispose();
     _houseStreetController.dispose();
-    _ageController.dispose();
     _yearsAtAddressController.dispose();
     _motherNameController.dispose();
     _fatherNameController.dispose();
+    _indigentOtherController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickBirthday() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedBirthday ?? DateTime(2000),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(
+            primary: Color(0xFF1A6B1A),
+            onPrimary: Colors.white,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      setState(() => _selectedBirthday = picked);
+    }
   }
 
   Future<void> _handleContinue() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (_selectedBirthday == null) {
+      _showError('Please select your birthday.');
+      return;
+    }
+
+    if (_indigentStatus == null) {
+      _showError('Please select your indigent status.');
+      return;
+    }
+
+    if (_indigentStatus == 'Others' &&
+        _indigentOtherController.text.trim().isEmpty) {
+      _showError('Please specify your indigent status.');
+      return;
+    }
 
     final parts = <String>[
       if (_selectedPurok != null) _selectedPurok!,
@@ -127,7 +179,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
       return;
     }
     if (_proofRequired && _proofValid == false) {
-      _showError('The uploaded document does not appear to be a valid $_proofLabel. Please upload the correct document.');
+      _showError(
+          'The uploaded document does not appear to be a valid $_proofLabel. Please upload the correct document.');
       return;
     }
     if (_proofRequired && _proofValidating) {
@@ -135,18 +188,24 @@ class _DemographicScreenState extends State<DemographicScreen> {
       return;
     }
 
+    final birthday =
+        '${_selectedBirthday!.year}-${_selectedBirthday!.month.toString().padLeft(2, '0')}-${_selectedBirthday!.day.toString().padLeft(2, '0')}';
+
     setState(() => _isLoading = true);
     try {
       final result = await ApiService.submitStep1(
         {
           'fullName': _fullNameController.text.trim(),
           'address': address,
-          'age': _ageController.text.trim(),
-          'gender': _gender!,
-          'yearsAtAddress': _yearsAtAddressController.text.trim(),
+          'birthday': birthday,
+          'sex': _sex!,
+          'yearsOfResidency': _yearsAtAddressController.text.trim(),
           'motherName': _motherNameController.text.trim(),
           'fatherName': _fatherNameController.text.trim(),
           'isPwd': _pwdStatus == 'Yes',
+          'indigent': _indigentStatus == 'Others'
+              ? _indigentOtherController.text.trim()
+              : _indigentStatus!,
         },
         proofBytes: _proofBytes,
         proofFileName: _proofFile?.name,
@@ -181,10 +240,12 @@ class _DemographicScreenState extends State<DemographicScreen> {
           children: [
             const SizedBox(height: 12),
             Text('Upload $_proofLabel',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
             ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF1A6B1A)),
+              leading: const Icon(Icons.camera_alt_outlined,
+                  color: Color(0xFF1A6B1A)),
               title: const Text('Take Photo'),
               onTap: () async {
                 Navigator.pop(context);
@@ -194,7 +255,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF1A6B1A)),
+              leading: const Icon(Icons.photo_library_outlined,
+                  color: Color(0xFF1A6B1A)),
               title: const Text('Choose from Gallery'),
               onTap: () async {
                 Navigator.pop(context);
@@ -278,13 +340,16 @@ class _DemographicScreenState extends State<DemographicScreen> {
         child: _proofFile == null
             ? Column(
                 children: [
-                  const Icon(Icons.upload_file_rounded, color: Colors.white54, size: 36),
+                  const Icon(Icons.upload_file_rounded,
+                      color: Colors.white54, size: 36),
                   const SizedBox(height: 8),
                   Text('Tap to upload $_proofLabel',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 13)),
                   const SizedBox(height: 4),
                   const Text('JPG, PNG  •  Max 5MB',
-                      style: TextStyle(color: Colors.white38, fontSize: 11)),
+                      style:
+                          TextStyle(color: Colors.white38, fontSize: 11)),
                 ],
               )
             : Column(
@@ -292,41 +357,39 @@ class _DemographicScreenState extends State<DemographicScreen> {
                   if (_proofBytes != null)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.memory(_proofBytes!, height: 100, fit: BoxFit.cover),
+                      child: Image.memory(_proofBytes!,
+                          height: 100, fit: BoxFit.cover),
                     ),
                   const SizedBox(height: 10),
 
-                  // Validation status
                   if (_proofValidating)
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         SizedBox(
-                          width: 14, height: 14,
+                          width: 14,
+                          height: 14,
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white54),
                         ),
                         SizedBox(width: 8),
                         Text('Verifying document…',
-                            style: TextStyle(color: Colors.white54, fontSize: 12)),
+                            style: TextStyle(
+                                color: Colors.white54, fontSize: 12)),
                       ],
                     )
                   else if (_proofValid == false)
-                    Column(
+                    const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.cancel_rounded,
-                                size: 16, color: Colors.redAccent),
-                            SizedBox(width: 6),
-                            Text('Invalid document',
-                                style: TextStyle(
-                                    color: Colors.redAccent,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600)),
-                          ],
-                        ),
+                        Icon(Icons.cancel_rounded,
+                            size: 16, color: Colors.redAccent),
+                        SizedBox(width: 6),
+                        Text('Invalid document',
+                            style: TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600)),
                       ],
                     )
                   else
@@ -347,9 +410,11 @@ class _DemographicScreenState extends State<DemographicScreen> {
 
                   TextButton.icon(
                     onPressed: _proofValidating ? null : _clearProof,
-                    icon: const Icon(Icons.close, size: 14, color: Colors.redAccent),
+                    icon: const Icon(Icons.close,
+                        size: 14, color: Colors.redAccent),
                     label: const Text('Remove',
-                        style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                        style:
+                            TextStyle(color: Colors.redAccent, fontSize: 12)),
                   ),
                 ],
               ),
@@ -360,16 +425,20 @@ class _DemographicScreenState extends State<DemographicScreen> {
   Widget _buildProofHint() {
     String hint;
     if (_pwdStatus == 'Yes') {
-      hint = 'Upload a clear photo of your PWD ID. This will be used when requesting free documents.';
+      hint =
+          'Upload a clear photo of your PWD ID. This will be used when requesting free documents.';
     } else if (_ageInt != null && _ageInt! < 18) {
-      hint = 'As a minor, upload your PSA Birth Certificate. You only need to do this once.';
+      hint =
+          'As a minor, upload your PSA Birth Certificate. You only need to do this once.';
     } else {
-      hint = 'As a Senior Citizen (60+), upload your Senior Citizen ID. You only need to do this once.';
+      hint =
+          'As a Senior Citizen (60+), upload your Senior Citizen ID. You only need to do this once.';
     }
     return Padding(
       padding: const EdgeInsets.only(left: 4),
       child: Text(hint,
-          style: const TextStyle(color: Colors.white54, fontSize: 11.5, height: 1.4)),
+          style: const TextStyle(
+              color: Colors.white54, fontSize: 11.5, height: 1.4)),
     );
   }
 
@@ -385,8 +454,10 @@ class _DemographicScreenState extends State<DemographicScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title:
+            const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
         content: const Text(
             'Your progress is saved. You can continue from this step when you log back in.'),
         actions: [
@@ -396,7 +467,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout', style: TextStyle(color: Colors.red)),
+            child:
+                const Text('Logout', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -442,7 +514,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 const StepProgressBar(currentStep: 1),
                 const SizedBox(height: 28),
 
-                _label('Full Legal Name *'),
+                // ── Full Name ─────────────────────────────────────────
+                _label('Full Legal Name', isRequired: true),
                 _textField(
                   controller: _fullNameController,
                   hint: 'As in documents',
@@ -458,13 +531,47 @@ class _DemographicScreenState extends State<DemographicScreen> {
                     LengthLimitingTextInputFormatter(100),
                   ],
                 ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: Checkbox(
+                        value: _agreedToCredentials,
+                        onChanged: (v) =>
+                            setState(() => _agreedToCredentials = v ?? false),
+                        activeColor: _limeGreen,
+                        checkColor: _green,
+                        side: const BorderSide(color: Colors.white54, width: 1.5),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'I agree that all my credentials are correct.',
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 14),
 
+                // ── Birthday ──────────────────────────────────────────
+                _label('Birthday', isRequired: true),
+                _buildBirthdayField(),
+                const SizedBox(height: 14),
+
+                // ── Barangay (fixed) ──────────────────────────────────
                 _label('Barangay'),
                 _staticField(_fixedBarangay),
                 const SizedBox(height: 14),
 
-                _label('Purok *'),
+                // ── Purok ─────────────────────────────────────────────
+                _label('Purok', isRequired: true),
                 _simpleDropdown(
                   value: _selectedPurok,
                   hint: 'Select purok',
@@ -474,7 +581,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // House / Street / Block (optional detail)
+                // ── House / Street (optional) ─────────────────────────
                 _label('House No. / Street (optional)'),
                 _textField(
                   controller: _houseStreetController,
@@ -483,58 +590,22 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _label('Age *'),
-                          _textField(
-                            controller: _ageController,
-                            hint: 'e.g. 25',
-                            keyboardType: TextInputType.number,
-                            formatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(3),
-                            ],
-                            validator: (v) {
-                              final n = int.tryParse(v ?? '');
-                              if (n == null) return 'Required';
-                              if (n < 1 || n > 120) return 'Invalid age';
-                              return null;
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 3,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _label('Gender *'),
-                          _simpleDropdown(
-                            value: _gender,
-                            hint: 'Select',
-                            items: _genders,
-                            onChanged: (v) => setState(() => _gender = v),
-                            validator: (v) => v == null ? 'Required' : null,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                // ── Sex ───────────────────────────────────────────────
+                _label('Sex', isRequired: true),
+                _simpleDropdown(
+                  value: _sex,
+                  hint: 'Select',
+                  items: _sexOptions,
+                  onChanged: (v) => setState(() => _sex = v),
+                  validator: (v) => v == null ? 'Required' : null,
                 ),
                 const SizedBox(height: 14),
 
-                _label('Years at Address *'),
+                // ── Years at Address ──────────────────────────────────
+                _label('Year/s of Residency', isRequired: true),
                 _textField(
                   controller: _yearsAtAddressController,
-                  hint: 'e.g. 5',
+                  hint: 'e.g. 5 years',
                   keyboardType: TextInputType.number,
                   formatters: [
                     FilteringTextInputFormatter.digitsOnly,
@@ -549,14 +620,14 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                _label('PWD? *'),
+                // ── PWD ───────────────────────────────────────────────
+                _label('PWD?', isRequired: true),
                 _simpleDropdown(
                   value: _pwdStatus,
                   hint: 'Yes or No',
                   items: const ['Yes', 'No'],
                   onChanged: (v) => setState(() {
                     _pwdStatus = v;
-                    // Clear proof if no longer required
                     if (!_proofRequired) {
                       _proofFile = null;
                       _proofBytes = null;
@@ -566,9 +637,38 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // Proof document upload — shown for PWD, Minor, or Senior
+                // ── Indigent ──────────────────────────────────────────
+                _label('Indigent', isRequired: true),
+                _simpleDropdown(
+                  value: _indigentStatus,
+                  hint: 'Select',
+                  items: _indigentOptions,
+                  onChanged: (v) => setState(() {
+                    _indigentStatus = v;
+                    if (v != 'Others') _indigentOtherController.clear();
+                  }),
+                  validator: (v) => v == null ? 'Required' : null,
+                ),
+                if (_indigentStatus == 'Others') ...[
+                  const SizedBox(height: 10),
+                  _label('Please specify', isRequired: true),
+                  _textField(
+                    controller: _indigentOtherController,
+                    hint: 'e.g. Solo parent, displaced farmer…',
+                    maxLength: 100,
+                    validator: (v) {
+                      if (_indigentStatus == 'Others' &&
+                          (v == null || v.trim().isEmpty)) return 'Required';
+                      return null;
+                    },
+                    formatters: [LengthLimitingTextInputFormatter(100)],
+                  ),
+                ],
+                const SizedBox(height: 14),
+
+                // ── Proof document ────────────────────────────────────
                 if (_proofRequired) ...[
-                  _label('$_proofLabel (required) *'),
+                  _label('$_proofLabel (required)', isRequired: true),
                   const SizedBox(height: 2),
                   _buildProofHint(),
                   const SizedBox(height: 8),
@@ -576,7 +676,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
                   const SizedBox(height: 14),
                 ],
 
-                _label("Full Mother's Maiden Name *"),
+                // ── Mother's Name ─────────────────────────────────────
+                _label("Full Mother's Maiden Name", isRequired: true),
                 _textField(
                   controller: _motherNameController,
                   hint: 'Full name',
@@ -594,7 +695,8 @@ class _DemographicScreenState extends State<DemographicScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                _label("Father's Full Name *"),
+                // ── Father's Name ─────────────────────────────────────
+                _label("Father's Full Name", isRequired: true),
                 _textField(
                   controller: _fatherNameController,
                   hint: 'Full name',
@@ -683,7 +785,9 @@ class _DemographicScreenState extends State<DemographicScreen> {
                               'Policy. I consent to the collection and processing of my '
                               'personal information as stated above.',
                               style: TextStyle(
-                                  color: Colors.white, fontSize: 12, height: 1.5),
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  height: 1.5),
                             ),
                           ),
                         ],
@@ -697,12 +801,15 @@ class _DemographicScreenState extends State<DemographicScreen> {
                   width: double.infinity,
                   height: 54,
                   child: ElevatedButton(
-                    onPressed: (_isLoading || !_agreedToTerms) ? null : _handleContinue,
+                    onPressed:
+                        (_isLoading || !_agreedToTerms || !_agreedToCredentials)
+                            ? null
+                            : _handleContinue,
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
-                          _agreedToTerms ? _limeGreen : Colors.white24,
+                          (_agreedToTerms && _agreedToCredentials) ? _limeGreen : Colors.white24,
                       foregroundColor:
-                          _agreedToTerms ? Colors.black : Colors.white38,
+                          (_agreedToTerms && _agreedToCredentials) ? Colors.black : Colors.white38,
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(32)),
                       elevation: 0,
@@ -729,16 +836,65 @@ class _DemographicScreenState extends State<DemographicScreen> {
 
   // ── Helpers ──────────────────────────────────────────────
 
-  Widget _label(String text) => Padding(
+  Widget _label(String text, {bool isRequired = false}) => Padding(
         padding: const EdgeInsets.only(left: 4, bottom: 6),
-        child: Text(text,
+        child: RichText(
+          text: TextSpan(
+            text: text,
             style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 13,
-                fontWeight: FontWeight.w600)),
+                fontWeight: FontWeight.w600),
+            children: isRequired
+                ? const [
+                    TextSpan(
+                      text: ' *',
+                      style: TextStyle(
+                          color: Colors.red, fontWeight: FontWeight.w700),
+                    )
+                  ]
+                : [],
+          ),
+        ),
       );
 
-  /// Read-only display for fixed values (e.g. Province = Bukidnon).
+  Widget _buildBirthdayField() {
+    return GestureDetector(
+      onTap: _pickBirthday,
+      child: Container(
+        width: double.infinity,
+        padding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _selectedBirthday != null
+                    ? _formatBirthday(_selectedBirthday!)
+                    : 'Select birthday',
+                style: TextStyle(
+                  color: _selectedBirthday != null
+                      ? _green
+                      : const Color(0xFF7BAE7B),
+                  fontSize: 15,
+                  fontWeight: _selectedBirthday != null
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                ),
+              ),
+            ),
+            const Icon(Icons.calendar_today_outlined,
+                color: Color(0xFF7BAE7B), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _staticField(String value) {
     return Container(
       width: double.infinity,
@@ -752,21 +908,6 @@ class _DemographicScreenState extends State<DemographicScreen> {
               color: _green, fontSize: 15, fontWeight: FontWeight.w600)),
     );
   }
-
-  Widget _loadingBox() => Container(
-        height: 52,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(28),
-        ),
-        alignment: Alignment.center,
-        child: const SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-              strokeWidth: 2, color: Color(0xFF1A6B1A)),
-        ),
-      );
 
   Widget _textField({
     required TextEditingController controller,
@@ -805,48 +946,6 @@ class _DemographicScreenState extends State<DemographicScreen> {
     );
   }
 
-  /// Dropdown backed by PSGC API list (code/name pairs).
-  Widget _apiDropdown({
-    required String? value,
-    required String hint,
-    required List<Map<String, String>> items,
-    required void Function(String?) onChanged,
-    String? Function(String?)? validator,
-  }) {
-    return DropdownButtonFormField<String>(
-      value: value,
-      validator: validator,
-      onChanged: items.isEmpty ? null : onChanged,
-      dropdownColor: Colors.white,
-      isExpanded: true,
-      style: const TextStyle(
-          color: _green, fontSize: 15, fontWeight: FontWeight.w600),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle:
-            const TextStyle(color: Color(0xFF7BAE7B), fontSize: 14),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(28),
-            borderSide: BorderSide.none),
-        errorStyle:
-            const TextStyle(color: Colors.orangeAccent, fontSize: 11),
-      ),
-      items: items
-          .map((e) => DropdownMenuItem(
-                value: e['code'],
-                child: Text(e['name']!,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: _green)),
-              ))
-          .toList(),
-    );
-  }
-
-  /// Dropdown for static string lists (gender, years, puroks, etc.).
   Widget _simpleDropdown({
     required String? value,
     required String hint,

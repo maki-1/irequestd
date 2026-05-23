@@ -47,7 +47,8 @@ const requestSchema = new mongoose.Schema(
     amountPaid: { type: Number, default: 0 }, // in pesos (PHP)
     orNumber: { type: String, unique: true, sparse: true },
     freeDocumentProof: { type: String, default: '' },
-    purokClearanceFee: { type: Number, default: 0 }, // in pesos (PHP)
+    requestPhoto: { type: String, default: '' },     // Cloudinary URL — camera photo required per request
+    controlNumber: { type: String, default: '' },
   },
   { timestamps: true }
 );

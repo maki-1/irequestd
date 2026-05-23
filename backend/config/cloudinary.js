@@ -74,9 +74,17 @@ const freeProofStorage = cloudinaryStorage({
   },
 });
 
-const uploadAvatar    = multer({ storage: avatarStorage });
-const uploadIdDoc     = multer({ storage: idDocStorage });
-const uploadFace      = multer({ storage: faceStorage });
-const uploadFreeProof = multer({ storage: freeProofStorage });
+const requestPhotoStorage = cloudinaryStorage({
+  params: {
+    folder: 'irequestd/request_photos',
+    allowed_formats: ['jpg', 'jpeg', 'png'],
+  },
+});
 
-module.exports = { cloudinary, uploadAvatar, uploadIdDoc, uploadFace, uploadFreeProof };
+const uploadAvatar       = multer({ storage: avatarStorage });
+const uploadIdDoc        = multer({ storage: idDocStorage });
+const uploadFace         = multer({ storage: faceStorage });
+const uploadFreeProof    = multer({ storage: freeProofStorage });
+const uploadRequestPhoto = multer({ storage: requestPhotoStorage });
+
+module.exports = { cloudinary, uploadAvatar, uploadIdDoc, uploadFace, uploadFreeProof, uploadRequestPhoto };

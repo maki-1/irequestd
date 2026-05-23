@@ -26,20 +26,26 @@ router.get('/status', async (req, res) => {
 // ── POST /api/verification/step1 ──────────────────────────────────────────────
 router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, res) => {
   try {
-    const { fullName, address, age, gender, yearsAtAddress, motherName, fatherName, isPwd } =
+    const { fullName, address, birthday, sex, indigent, yearsOfResidency, motherName, fatherName, isPwd } =
       req.body;
 
-    if (!fullName || !address || !age || !gender || !yearsAtAddress || !motherName || !fatherName) {
+    if (!fullName || !address || !birthday || !sex || !indigent || !yearsOfResidency || !motherName || !fatherName) {
       return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    const parsedBirthday = new Date(birthday);
+    if (isNaN(parsedBirthday.getTime())) {
+      return res.status(400).json({ message: 'Invalid birthday date' });
     }
 
     const updateData = {
       user: req.user.id,
       fullName: fullName.trim(),
       address: address.trim(),
-      age: parseInt(age),
-      gender,
-      yearsAtAddress,
+      birthday: parsedBirthday,
+      sex: sex.trim(),
+      indigent: indigent.trim(),
+      yearsOfResidency,
       motherName: motherName.trim(),
       fatherName: fatherName.trim(),
       isPwd: isPwd === true || isPwd === 'true',

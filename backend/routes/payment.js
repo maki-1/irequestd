@@ -7,8 +7,7 @@ const Request = require('../models/Request');
 const User = require('../models/User');
 const VerificationProfile = require('../models/VerificationProfile');
 const DocumentPrice = require('../models/DocumentPrice');
-const PurokClearanceFee = require('../models/PurokClearanceFee');
-const { sendPurokClearanceForm } = require('../services/email');
+const { uploadRequestPhoto } = require('../config/cloudinary');
 
 const PAYMONGO_BASE = 'https://api.paymongo.com/v1';
 const FALLBACK_PRICE = parseInt(process.env.DOCUMENT_PRICE_CENTAVOS || '500', 10);
@@ -20,69 +19,52 @@ async function getPriceCentavos(documentType) {
   return entry ? entry.pricecentavos : FALLBACK_PRICE;
 }
 
-async function getPurokFeeCentavos(userId) {
-  const profile = await VerificationProfile.findOne({ user: userId });
-  if (!profile?.address) return 0;
-  const match = profile.address.match(/^(Purok\s+\d+)/i);
-  if (!match) return 0;
-  const fee = await PurokClearanceFee.findOne({ purokName: match[1] });
-  return fee ? fee.feecentavos : 0;
-}
-
 function paymongoAuth() {
   const key = process.env.PAYMONGO_SECRET_KEY || '';
   return `Basic ${Buffer.from(`${key}:`).toString('base64')}`;
 }
 
 // ── POST /api/payment/create-session ────────────────────────────────────────
-// Accepts items: [{ documentType, purpose, additionalDetails, deliveryMethod }]
+// Accepts multipart: items (JSON string), requestPhoto file, per-item controlNumber inside items.
 // Creates one PayMongo checkout session with multiple line items + one Request per doc.
 // Returns { checkoutUrl, sessionId, requestIds }
-router.post('/create-session', authMiddleware, async (req, res) => {
+router.post('/create-session', authMiddleware, uploadRequestPhoto.single('requestPhoto'), async (req, res) => {
   try {
-    const items = req.body.items;
+    let items;
+    try {
+      items = typeof req.body.items === 'string' ? JSON.parse(req.body.items) : req.body.items;
+    } catch {
+      return res.status(400).json({ message: 'Invalid items format' });
+    }
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'At least one document item is required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ message: 'A photo is required for every document request' });
     }
     for (const item of items) {
       if (!item.documentType || !item.purpose || !item.deliveryMethod) {
         return res.status(400).json({ message: 'Each item requires documentType, purpose, and deliveryMethod' });
       }
     }
+    const requestPhotoUrl = req.file.path;
 
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
     const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://irequestd.onrender.com/payment/cancel';
 
-    // Resolve purok clearance fee once if any Barangay Clearance in the order
-    const hasClearance = items.some((item) => item.documentType === 'Barangay Clearance');
-    const purokFeeCentavos = hasClearance ? await getPurokFeeCentavos(req.user.id) : 0;
-
     // Resolve prices for all items
     const itemsWithPrice = await Promise.all(items.map(async (item) => {
       const basePriceCentavos = await getPriceCentavos(item.documentType);
-      const itemPurokFee = item.documentType === 'Barangay Clearance' ? purokFeeCentavos : 0;
-      return { ...item, basePriceCentavos, purokFeeCentavos: itemPurokFee };
+      return { ...item, basePriceCentavos };
     }));
 
-    const lineItems = [];
-    for (const item of itemsWithPrice) {
-      lineItems.push({
-        currency: 'PHP',
-        amount: item.basePriceCentavos,
-        description: `${item.purpose}${item.additionalDetails ? ` — ${item.additionalDetails}` : ''}`,
-        name: item.documentType,
-        quantity: 1,
-      });
-      if (item.purokFeeCentavos > 0) {
-        lineItems.push({
-          currency: 'PHP',
-          amount: item.purokFeeCentavos,
-          description: 'Additional purok clearance fee',
-          name: 'Purok Clearance Fee',
-          quantity: 1,
-        });
-      }
-    }
+    const lineItems = itemsWithPrice.map((item) => ({
+      currency: 'PHP',
+      amount: item.basePriceCentavos,
+      description: `${item.purpose}${item.additionalDetails ? ` — ${item.additionalDetails}` : ''}`,
+      name: item.documentType,
+      quantity: 1,
+    }));
 
     const description = items.length === 1
       ? `iRequestD — ${items[0].documentType}`
@@ -124,10 +106,11 @@ router.post('/create-session', authMiddleware, async (req, res) => {
         purpose: item.purpose,
         additionalDetails: item.additionalDetails || '',
         deliveryMethod: item.deliveryMethod,
+        controlNumber: (item.controlNumber || '').trim(),
+        requestPhoto: requestPhotoUrl,
         paymentStatus: 'unpaid',
         paymentSessionId: sessionId,
         amountPaid: 0,
-        purokClearanceFee: item.purokFeeCentavos / 100,
       })
     ));
 
@@ -174,45 +157,9 @@ router.get('/status/:sessionId', authMiddleware, async (req, res) => {
       await Promise.all(requests.map(async (r) => {
         const PRICE = await getPriceCentavos(r.documentType);
         r.paymentStatus = 'paid';
-        r.amountPaid = PRICE / 100 + (r.purokClearanceFee || 0);
+        r.amountPaid = PRICE / 100;
         await r.save();
       }));
-
-      // Send Purok Clearance form for every Barangay Clearance that includes a purok fee
-      const purokRequests = requests.filter(
-        (r) => r.documentType === 'Barangay Clearance' && (r.purokClearanceFee || 0) > 0
-      );
-      if (purokRequests.length > 0) {
-        try {
-          const [user, profile] = await Promise.all([
-            User.findById(req.user.id).select('email'),
-            VerificationProfile.findOne({ user: req.user.id }).select('fullName address'),
-          ]);
-          if (user?.email && profile) {
-            const purokMatch = (profile.address || '').match(/^(Purok\s+(\d+))/i);
-            const purokName   = purokMatch ? purokMatch[1] : null;
-            const purokNumber = purokMatch ? purokMatch[2] : '—';
-            const purokFeeDoc = purokName
-              ? await PurokClearanceFee.findOne({ purokName }).select('treasurerName purokPresident')
-              : null;
-            const date = new Date().toLocaleDateString('en-PH', {
-              year: 'numeric', month: 'long', day: 'numeric',
-            });
-            for (const r of purokRequests) {
-              await sendPurokClearanceForm(user.email, {
-                fullName: profile.fullName || '—',
-                purokNumber,
-                controlNo: r.orNumber || r._id.toString().slice(-6).toUpperCase(),
-                date,
-                treasurerName:  purokFeeDoc?.treasurerName  || '',
-                purokPresident: purokFeeDoc?.purokPresident || '',
-              });
-            }
-          }
-        } catch (emailErr) {
-          console.error('[Email] Failed to send Purok Clearance form:', emailErr.message);
-        }
-      }
 
       return res.json({ paid: true, requestIds: requests.map((r) => r._id) });
     }
@@ -286,7 +233,6 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
     }
 
     const priceCentavos = await getPriceCentavos(request.documentType);
-    const purokFeeCentavos = Math.round((request.purokClearanceFee || 0) * 100);
 
     const lineItems = [
       {
@@ -297,15 +243,6 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
         quantity: 1,
       },
     ];
-    if (purokFeeCentavos > 0) {
-      lineItems.push({
-        currency: 'PHP',
-        amount: purokFeeCentavos,
-        description: 'Additional purok clearance fee',
-        name: 'Purok Clearance Fee',
-        quantity: 1,
-      });
-    }
 
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
     const cancelUrl  = process.env.PAYMENT_CANCEL_URL  || 'https://irequestd.onrender.com/payment/cancel';

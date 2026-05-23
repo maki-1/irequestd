@@ -18,18 +18,14 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   static const Color _green = Color(0xFF1A6B1A);
   static const Color _limeGreen = Color(0xFF4CFF4C);
 
-  // prices loaded from DB: { 'Barangay Clearance': 100.0, ... }
   Map<String, double> _prices = {};
-  // purok clearance fees loaded from DB: { 'Purok 1': 50.0, ... }
-  Map<String, double> _purokFees = {};
-  String? _userPurok;
 
   bool _isFreeEligible = false;
   String _freeReason = '';
-  bool _hasProofOnFile = false;
 
-  XFile? _proofFile;
-  Uint8List? _proofBytes;
+  // Required camera photo
+  XFile? _photoFile;
+  Uint8List? _photoBytes;
 
   static const _docTypes = [
     'Barangay Clearance',
@@ -55,6 +51,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   final Set<String> _selectedDocs = {};
   String? _purpose;
   final _detailsController = TextEditingController();
+  final _controlNumberController = TextEditingController();
   bool _isLoading = false;
 
   @override
@@ -63,6 +60,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     if (widget.preselectedType != null) {
       _selectedDocs.add(widget.preselectedType!);
     }
+    _controlNumberController.addListener(() => setState(() {}));
     _loadPricesAndEligibility();
   }
 
@@ -70,14 +68,12 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     final results = await Future.wait([
       ApiService.fetchDocumentPrices(),
       ApiService.getMe(),
-      ApiService.fetchPurokClearanceFees(),
     ]);
 
     if (!mounted) return;
 
     final list = (results[0] as List).cast<Map<String, dynamic>>();
     final user = results[1] as Map<String, dynamic>?;
-    final purokFeeList = (results[2] as List).cast<Map<String, dynamic>>();
 
     bool eligible = false;
     String reason = '';
@@ -102,58 +98,67 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         for (final p in list)
           p['documentType'] as String: (p['pricecentavos'] as int) / 100.0,
       };
-      _purokFees = {
-        for (final f in purokFeeList)
-          f['purokName'] as String: (f['feecentavos'] as int) / 100.0,
-      };
-      _userPurok = user?['purok'] as String?;
       _isFreeEligible = eligible;
       _freeReason = reason;
-      _hasProofOnFile = user?['hasFreeProof'] == true;
     });
-  }
-
-  double get _purokClearanceFee {
-    if (_isFreeEligible) return 0.0;
-    if (!_selectedDocs.contains('Barangay Clearance')) return 0.0;
-    if (_userPurok == null) return 0.0;
-    return _purokFees[_userPurok] ?? 0.0;
   }
 
   double get _totalPrice {
     if (_isFreeEligible) return 0.0;
-    final docTotal = _selectedDocs.fold(0.0, (sum, doc) => sum + (_prices[doc] ?? 0.0));
-    return docTotal + _purokClearanceFee;
+    return _selectedDocs.fold(0.0, (sum, doc) => sum + (_prices[doc] ?? 0.0));
   }
 
   @override
   void dispose() {
     _detailsController.dispose();
+    _controlNumberController.dispose();
     super.dispose();
   }
-
-  bool get _proofRequired =>
-      (_freeReason == 'Minor' || _freeReason == 'Senior Citizen') &&
-      !_hasProofOnFile;
 
   bool get _canProceed =>
       _selectedDocs.isNotEmpty &&
       _purpose != null &&
-      (!_proofRequired || _proofBytes != null);
+      _photoBytes != null &&
+      _controlNumberController.text.trim().isNotEmpty;
 
   List<Map<String, String>> get _items => _selectedDocs.map((doc) => {
-    'documentType': doc,
-    'purpose': _purpose!,
-    'additionalDetails': _detailsController.text.trim(),
-  }).toList();
+        'documentType': doc,
+        'purpose': _purpose!,
+        'additionalDetails': _detailsController.text.trim(),
+        'controlNumber': _controlNumberController.text.trim(),
+        'deliveryMethod': 'Pick up at Barangay Office',
+      }).toList();
+
+  Future<void> _capturePhoto() async {
+    final file = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      imageQuality: 85,
+    );
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Photo too large (max 5MB). Please retake.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
+    }
+    setState(() {
+      _photoFile = file;
+      _photoBytes = bytes;
+    });
+  }
 
   Future<void> _submitFree() async {
     setState(() => _isLoading = true);
     try {
       final result = await ApiService.createBulkRequest(
         items: _items,
-        proofFileBytes: _proofBytes,
-        proofFileName: _proofFile?.name,
+        requestPhotoBytes: _photoBytes!,
+        requestPhotoFileName: _photoFile!.name,
       );
       if (!mounted) return;
       if (result['statusCode'] == 201) {
@@ -188,9 +193,9 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         builder: (_) => _PaymentSheet(
           items: _items,
           prices: {for (final d in _selectedDocs) d: _prices[d] ?? 0.0},
-          purokClearanceFee: _purokClearanceFee,
-          userPurok: _userPurok,
           totalPhp: _totalPrice,
+          requestPhotoBytes: _photoBytes!,
+          requestPhotoFileName: _photoFile!.name,
           onPaid: () {
             Navigator.pop(context);
             Navigator.pushReplacement(
@@ -221,6 +226,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Document selection ────────────────────────────────────
             _sectionLabel('Select Document(s) *'),
             const SizedBox(height: 8),
             ..._docTypes.map((type) => _checkCard(
@@ -237,6 +243,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                 )),
             const SizedBox(height: 20),
 
+            // ── Purpose ───────────────────────────────────────────────
             _sectionLabel('Purpose of Document *'),
             const SizedBox(height: 8),
             _dropdown(
@@ -247,6 +254,38 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             ),
             const SizedBox(height: 20),
 
+            // ── Control Number ────────────────────────────────────────
+            _sectionLabel('Control Number *'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _controlNumberController,
+              style: const TextStyle(fontSize: 14, color: Colors.black87),
+              decoration: InputDecoration(
+                hintText: 'Enter control number',
+                hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // ── Camera Photo ──────────────────────────────────────────
+            _sectionLabel('Photo (Camera Required) *'),
+            const SizedBox(height: 4),
+            const Text(
+              'Take a photo as proof for your document request.',
+              style: TextStyle(fontSize: 12, color: Colors.black45),
+            ),
+            const SizedBox(height: 8),
+            _buildPhotoCapture(),
+            const SizedBox(height: 20),
+
+            // ── Additional Details ────────────────────────────────────
             _sectionLabel('Additional Details'),
             const SizedBox(height: 8),
             TextField(
@@ -272,21 +311,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             ),
             const SizedBox(height: 20),
 
-            if (_freeReason == 'Minor' || _freeReason == 'Senior Citizen') ...[
-              _sectionLabel(
-                _freeReason == 'Minor'
-                    ? 'PSA Birth Certificate'
-                    : 'Senior Citizen ID',
-              ),
-              const SizedBox(height: 8),
-              if (_hasProofOnFile)
-                _buildProofOnFileNotice()
-              else
-                _buildProofUpload(),
-              const SizedBox(height: 20),
-            ],
-
-            // Price summary card
+            // ── Price summary card ────────────────────────────────────
             if (_selectedDocs.isNotEmpty)
               Container(
                 width: double.infinity,
@@ -305,7 +330,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Per-doc line items
                     ..._selectedDocs.map((doc) => Padding(
                           padding: const EdgeInsets.only(bottom: 6),
                           child: Row(
@@ -330,31 +354,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                             ],
                           ),
                         )),
-                    // Purok clearance fee line item (normal accounts only)
-                    if (!_isFreeEligible && _purokClearanceFee > 0)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Purok Clearance Fee${_userPurok != null ? ' ($_userPurok)' : ''}',
-                                style: const TextStyle(
-                                    fontSize: 13, color: Colors.black54),
-                              ),
-                            ),
-                            Text(
-                              '₱${_purokClearanceFee.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87),
-                            ),
-                          ],
-                        ),
-                      ),
-                    if (_selectedDocs.length > 1 || _purokClearanceFee > 0) ...[
+                    if (_selectedDocs.length > 1) ...[
                       const Divider(height: 14),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -398,6 +398,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
               ),
             const SizedBox(height: 16),
 
+            // ── Submit / Pay button ───────────────────────────────────
             SizedBox(
               width: double.infinity,
               height: 54,
@@ -410,7 +411,8 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                   _totalPrice == 0
                       ? 'Submit Request${_selectedDocs.length > 1 ? 's' : ''}'
                       : 'Proceed to Payment  ₱${_totalPrice.toStringAsFixed(2)}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w700),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _canProceed ? _green : Colors.black12,
@@ -430,179 +432,63 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     );
   }
 
-  Widget _buildProofOnFileNotice() {
-    final docName = _freeReason == 'Minor' ? 'PSA Birth Certificate' : 'Senior Citizen ID';
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8F5E9),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF1A6B1A)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.check_circle_rounded, color: Color(0xFF1A6B1A), size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(docName,
-                    style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1A6B1A))),
-                const SizedBox(height: 2),
-                const Text('Already submitted during verification',
-                    style: TextStyle(fontSize: 12, color: Colors.black54)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _pickProof() async {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Text(
-              _freeReason == 'Minor'
-                  ? 'Upload PSA Birth Certificate'
-                  : 'Upload Senior Citizen ID',
-              style:
-                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined,
-                  color: Color(0xFF1A6B1A)),
-              title: const Text('Take Photo'),
-              onTap: () async {
-                Navigator.pop(context);
-                final file = await ImagePicker()
-                    .pickImage(source: ImageSource.camera, imageQuality: 85);
-                if (file != null) _setProofFile(file);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined,
-                  color: Color(0xFF1A6B1A)),
-              title: const Text('Choose from Gallery'),
-              onTap: () async {
-                Navigator.pop(context);
-                final file = await ImagePicker()
-                    .pickImage(source: ImageSource.gallery, imageQuality: 85);
-                if (file != null) _setProofFile(file);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _setProofFile(XFile file) async {
-    final bytes = await file.readAsBytes();
-    if (bytes.length > 5 * 1024 * 1024) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('File too large (max 5MB)'),
-          backgroundColor: Colors.redAccent,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-      return;
-    }
-    setState(() {
-      _proofFile = file;
-      _proofBytes = bytes;
-    });
-  }
-
-  Widget _buildProofUpload() {
+  Widget _buildPhotoCapture() {
     return GestureDetector(
-      onTap: _pickProof,
+      onTap: _capturePhoto,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
         decoration: BoxDecoration(
-          color: _proofBytes != null
+          color: _photoBytes != null
               ? const Color(0xFFE8F5E9)
               : Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: _proofBytes != null
-                ? const Color(0xFF1A6B1A)
-                : Colors.black12,
-            width: _proofBytes != null ? 1.5 : 1,
+            color: _photoBytes != null ? _green : Colors.black12,
+            width: _photoBytes != null ? 1.5 : 1,
           ),
         ),
-        child: _proofBytes == null
-            ? Column(
+        child: _photoBytes == null
+            ? const Column(
                 children: [
-                  Icon(Icons.upload_file_rounded,
-                      color: Colors.black26, size: 36),
-                  const SizedBox(height: 8),
-                  Text(
-                    _freeReason == 'Minor'
-                        ? 'Tap to upload PSA Birth Certificate'
-                        : 'Tap to upload Senior Citizen ID',
-                    style: const TextStyle(
-                        color: Colors.black54, fontSize: 13),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text('JPG, PNG  •  Max 5MB',
-                      style:
-                          TextStyle(color: Colors.black38, fontSize: 11)),
+                  Icon(Icons.camera_alt_rounded,
+                      color: Colors.black38, size: 36),
+                  SizedBox(height: 8),
+                  Text('Tap to take a photo',
+                      style: TextStyle(color: Colors.black54, fontSize: 13)),
+                  SizedBox(height: 4),
+                  Text('Camera only  •  Max 5MB',
+                      style: TextStyle(color: Colors.black38, fontSize: 11)),
                 ],
               )
             : Column(
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(_proofBytes!,
-                        height: 100, fit: BoxFit.cover),
+                    child:
+                        Image.memory(_photoBytes!, height: 140, fit: BoxFit.cover),
                   ),
                   const SizedBox(height: 8),
-                  Row(
+                  const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.check_circle_rounded,
+                      Icon(Icons.check_circle_rounded,
                           size: 16, color: Color(0xFF1A6B1A)),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          _proofFile!.name,
-                          style: const TextStyle(
+                      SizedBox(width: 6),
+                      Text('Photo captured',
+                          style: TextStyle(
                               color: Color(0xFF1A6B1A),
                               fontSize: 12,
-                              fontWeight: FontWeight.w600),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+                              fontWeight: FontWeight.w600)),
                     ],
                   ),
                   TextButton.icon(
-                    onPressed: () => setState(() {
-                      _proofFile = null;
-                      _proofBytes = null;
-                    }),
-                    icon: const Icon(Icons.close,
-                        size: 14, color: Colors.redAccent),
-                    label: const Text('Remove',
+                    onPressed: _capturePhoto,
+                    icon: const Icon(Icons.camera_alt_rounded,
+                        size: 14, color: Color(0xFF1A6B1A)),
+                    label: const Text('Retake Photo',
                         style: TextStyle(
-                            color: Colors.redAccent, fontSize: 12)),
+                            color: Color(0xFF1A6B1A), fontSize: 12)),
                   ),
                 ],
               ),
@@ -641,7 +527,9 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                       color: checked ? _green : Colors.black87)),
             ),
             Icon(
-              checked ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
+              checked
+                  ? Icons.check_box_rounded
+                  : Icons.check_box_outline_blank_rounded,
               color: checked ? _green : Colors.black26,
               size: 22,
             ),
@@ -700,17 +588,17 @@ enum _PayState { idle, creatingLink, awaitingPayment, polling, paid, error }
 class _PaymentSheet extends StatefulWidget {
   final List<Map<String, String>> items;
   final Map<String, double> prices;
-  final double purokClearanceFee;
-  final String? userPurok;
   final double totalPhp;
+  final Uint8List requestPhotoBytes;
+  final String requestPhotoFileName;
   final VoidCallback onPaid;
 
   const _PaymentSheet({
     required this.items,
     required this.prices,
-    required this.purokClearanceFee,
-    required this.userPurok,
     required this.totalPhp,
+    required this.requestPhotoBytes,
+    required this.requestPhotoFileName,
     required this.onPaid,
   });
 
@@ -720,16 +608,14 @@ class _PaymentSheet extends StatefulWidget {
 
 class _PaymentSheetState extends State<_PaymentSheet> {
   static const Color _green = Color(0xFF1A6B1A);
-  static const Color _lime = Color(0xFF4CFF4C);
 
   _PayState _state = _PayState.idle;
   String? _sessionId;
-  String? _requestId;
   String? _checkoutUrl;
   String? _errorMsg;
   Timer? _pollTimer;
   int _pollCount = 0;
-  static const _maxPolls = 40; // 40 × 5s = ~3 min timeout
+  static const _maxPolls = 40;
 
   @override
   void dispose() {
@@ -738,11 +624,16 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   }
 
   Future<void> _createLinkAndPay() async {
-    setState(() { _state = _PayState.creatingLink; _errorMsg = null; });
+    setState(() {
+      _state = _PayState.creatingLink;
+      _errorMsg = null;
+    });
 
     try {
       final result = await ApiService.createCheckoutSession(
         items: widget.items,
+        requestPhotoBytes: widget.requestPhotoBytes,
+        requestPhotoFileName: widget.requestPhotoFileName,
       );
 
       if (result['statusCode'] != 201) {
@@ -754,16 +645,14 @@ class _PaymentSheetState extends State<_PaymentSheet> {
       }
 
       _sessionId = result['sessionId'] as String;
-      _requestId = result['requestId'] as String?;
       _checkoutUrl = result['checkoutUrl'] as String;
 
-      // Open PayMongo checkout in browser
       final uri = Uri.parse(_checkoutUrl!);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
 
-      setState(() { _state = _PayState.awaitingPayment; });
+      setState(() => _state = _PayState.awaitingPayment);
       _startPolling();
     } catch (_) {
       setState(() {
@@ -783,7 +672,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         if (mounted) {
           setState(() {
             _state = _PayState.error;
-            _errorMsg = 'Payment timed out. If you already paid, it will reflect shortly.';
+            _errorMsg =
+                'Payment timed out. If you already paid, it will reflect shortly.';
           });
         }
         return;
@@ -819,55 +709,60 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Handle bar
           Center(
             child: Container(
-              width: 40, height: 4,
+              width: 40,
+              height: 4,
               decoration: BoxDecoration(
-                  color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+                  color: Colors.black12,
+                  borderRadius: BorderRadius.circular(2)),
             ),
           ),
           const SizedBox(height: 20),
 
           const Text('Payment Summary',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.black87)),
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black87)),
           const SizedBox(height: 16),
 
-          // Order details
           ...widget.items.map((item) => _summaryRow(
                 Icons.description_outlined,
                 item['documentType']!,
                 '₱${(widget.prices[item['documentType']] ?? 0.0).toStringAsFixed(2)}',
               )),
-          if (widget.purokClearanceFee > 0)
-            _summaryRow(
-              Icons.location_on_outlined,
-              'Purok Clearance Fee${widget.userPurok != null ? ' (${widget.userPurok})' : ''}',
-              '₱${widget.purokClearanceFee.toStringAsFixed(2)}',
-            ),
-          _summaryRow(Icons.info_outline_rounded, 'Purpose', widget.items.first['purpose']!),
+          _summaryRow(Icons.info_outline_rounded, 'Purpose',
+              widget.items.first['purpose']!),
+          _summaryRow(Icons.tag_rounded, 'Control No.',
+              widget.items.first['controlNumber'] ?? '—'),
           const Divider(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                widget.items.length > 1 ? 'Total (${widget.items.length} docs)' : 'Processing fee',
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.black87),
+                widget.items.length > 1
+                    ? 'Total (${widget.items.length} docs)'
+                    : 'Processing fee',
+                style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87),
               ),
               Text(
                 '₱${widget.totalPhp.toStringAsFixed(2)}',
                 style: const TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF1A6B1A)),
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF1A6B1A)),
               ),
             ],
           ),
           const SizedBox(height: 20),
 
-          // State-driven content
           _buildStateContent(),
           const SizedBox(height: 8),
 
-          // PayMongo badge
           Center(
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -898,7 +793,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
             style: ElevatedButton.styleFrom(
               backgroundColor: _green,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(32)),
             ),
           ),
         );
@@ -923,7 +819,6 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               showSpinner: true,
             ),
             const SizedBox(height: 12),
-            // Manual reopen link
             if (_checkoutUrl != null)
               TextButton.icon(
                 onPressed: () async {
@@ -968,7 +863,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _green,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(32)),
                 ),
                 child: const Text('Try Again'),
               ),
@@ -991,10 +887,13 @@ class _PaymentSheetState extends State<_PaymentSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: const TextStyle(fontSize: 11, color: Colors.black38)),
+                    style: const TextStyle(
+                        fontSize: 11, color: Colors.black38)),
                 Text(value,
                     style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87)),
               ],
             ),
           ),
@@ -1053,7 +952,8 @@ class _StatusTile extends StatelessWidget {
                         color: color)),
                 const SizedBox(height: 2),
                 Text(subtitle,
-                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                    style: const TextStyle(
+                        fontSize: 12, color: Colors.black54)),
               ],
             ),
           ),

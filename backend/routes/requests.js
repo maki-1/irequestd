@@ -4,7 +4,9 @@ const authMiddleware = require('../middleware/auth');
 const Request = require('../models/Request');
 const CompletedDocument = require('../models/CompletedDocument');
 const VerificationProfile = require('../models/VerificationProfile');
-const { uploadFreeProof } = require('../config/cloudinary');
+const { uploadFreeProof, uploadRequestPhoto } = require('../config/cloudinary');
+const multer = require('multer');
+const upload = multer(); // memory-only fallback (unused directly)
 
 router.use(authMiddleware);
 
@@ -37,17 +39,17 @@ router.get('/summary', async (req, res) => {
 });
 
 // POST /api/requests
-router.post('/', uploadFreeProof.single('freeDocumentProof'), async (req, res) => {
+router.post('/', uploadRequestPhoto.single('requestPhoto'), async (req, res) => {
   try {
-    const { documentType, purpose, additionalDetails, deliveryMethod } = req.body;
+    const { documentType, purpose, additionalDetails, deliveryMethod, controlNumber } = req.body;
     if (!documentType || !purpose || !deliveryMethod) {
       return res.status(400).json({ message: 'Document type, purpose, and delivery method are required' });
     }
-
-    let proofUrl = req.file?.path || '';
-    if (!proofUrl) {
-      const profile = await VerificationProfile.findOne({ user: req.user.id });
-      proofUrl = profile?.freeProofDocument || '';
+    if (!controlNumber || !controlNumber.trim()) {
+      return res.status(400).json({ message: 'Control number is required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ message: 'A photo is required for every document request' });
     }
 
     const request = await Request.create({
@@ -56,7 +58,8 @@ router.post('/', uploadFreeProof.single('freeDocumentProof'), async (req, res) =
       purpose,
       additionalDetails: additionalDetails || '',
       deliveryMethod,
-      freeDocumentProof: proofUrl,
+      controlNumber: controlNumber.trim(),
+      requestPhoto: req.file.path,
     });
     res.status(201).json(request);
   } catch (err) {
@@ -102,7 +105,7 @@ router.get('/claimed', async (req, res) => {
 });
 
 // POST /api/requests/bulk  (free multi-doc submission)
-router.post('/bulk', uploadFreeProof.single('freeDocumentProof'), async (req, res) => {
+router.post('/bulk', uploadRequestPhoto.single('requestPhoto'), async (req, res) => {
   try {
     let items;
     try {
@@ -113,12 +116,11 @@ router.post('/bulk', uploadFreeProof.single('freeDocumentProof'), async (req, re
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'At least one document item is required' });
     }
-
-    let proofUrl = req.file?.path || '';
-    if (!proofUrl) {
-      const profile = await VerificationProfile.findOne({ user: req.user.id });
-      proofUrl = profile?.freeProofDocument || '';
+    if (!req.file) {
+      return res.status(400).json({ message: 'A photo is required for every document request' });
     }
+
+    const requestPhotoUrl = req.file.path;
 
     const requests = await Promise.all(items.map((item) =>
       Request.create({
@@ -126,8 +128,9 @@ router.post('/bulk', uploadFreeProof.single('freeDocumentProof'), async (req, re
         documentType: item.documentType,
         purpose: item.purpose,
         additionalDetails: item.additionalDetails || '',
-        deliveryMethod: item.deliveryMethod,
-        freeDocumentProof: proofUrl,
+        deliveryMethod: item.deliveryMethod || 'Pick up at Barangay Office',
+        controlNumber: (item.controlNumber || '').trim(),
+        requestPhoto: requestPhotoUrl,
       })
     ));
 

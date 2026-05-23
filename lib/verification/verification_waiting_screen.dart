@@ -231,33 +231,6 @@ class _VerificationWaitingScreenState
             ),
             const SizedBox(height: 24),
 
-            // Expected time box
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.orange.shade200),
-              ),
-              child: Column(
-                children: [
-                  const Text('Expected Time',
-                      style: TextStyle(
-                          color: Colors.black54,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  Text('2 - 6 Hours',
-                      style: TextStyle(
-                          color: Colors.orange.shade700,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
             // Submitted checklist
             Container(
               width: double.infinity,
