@@ -6,9 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
-  // static const String _baseUrl = 'https://irequestd.onrender.com/api';
+  static const String _baseUrl = 'https://irequestd.onrender.com/api';
   // static const String _baseUrl = 'http://192.168.1.43:5000/api'; // Physical device
-  static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web/
+  // static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web/
 
   // ── Token helpers ────────────────────────────────────────────────────────────
 
@@ -417,8 +417,8 @@ class ApiService {
   /// Returns { checkoutUrl, sessionId, requestIds } on success.
   static Future<Map<String, dynamic>> createCheckoutSession({
     required List<Map<String, String>> items,
-    required Uint8List requestPhotoBytes,
-    required String requestPhotoFileName,
+    required List<Uint8List> purokPhotoBytes,
+    required List<String> purokPhotoFileNames,
   }) async {
     final token = await getToken();
     final request = http.MultipartRequest(
@@ -427,11 +427,13 @@ class ApiService {
     );
     if (token != null) request.headers['Authorization'] = 'Bearer $token';
     request.fields['items'] = jsonEncode(items);
-    request.files.add(http.MultipartFile.fromBytes(
-      'requestPhoto',
-      requestPhotoBytes,
-      filename: requestPhotoFileName,
-    ));
+    for (int i = 0; i < purokPhotoBytes.length; i++) {
+      request.files.add(http.MultipartFile.fromBytes(
+        'purokClearances',
+        purokPhotoBytes[i],
+        filename: purokPhotoFileNames[i],
+      ));
+    }
     final streamed = await request.send();
     final res = await http.Response.fromStream(streamed);
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -439,10 +441,11 @@ class ApiService {
   }
 
   /// Creates multiple free requests in one call.
+  /// Each item must have a corresponding purok clearance photo at the same index.
   static Future<Map<String, dynamic>> createBulkRequest({
     required List<Map<String, String>> items,
-    required Uint8List requestPhotoBytes,
-    required String requestPhotoFileName,
+    required List<Uint8List> purokPhotoBytes,
+    required List<String> purokPhotoFileNames,
   }) async {
     final token = await getToken();
     final request = http.MultipartRequest(
@@ -451,11 +454,13 @@ class ApiService {
     );
     if (token != null) request.headers['Authorization'] = 'Bearer $token';
     request.fields['items'] = jsonEncode(items);
-    request.files.add(http.MultipartFile.fromBytes(
-      'requestPhoto',
-      requestPhotoBytes,
-      filename: requestPhotoFileName,
-    ));
+    for (int i = 0; i < purokPhotoBytes.length; i++) {
+      request.files.add(http.MultipartFile.fromBytes(
+        'purokClearances',
+        purokPhotoBytes[i],
+        filename: purokPhotoFileNames[i],
+      ));
+    }
     final streamed = await request.send();
     final res = await http.Response.fromStream(streamed);
     final body = jsonDecode(res.body);

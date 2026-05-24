@@ -23,9 +23,10 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   bool _isFreeEligible = false;
   String _freeReason = '';
 
-  // Required camera photo
-  XFile? _photoFile;
-  Uint8List? _photoBytes;
+  // Per-document purok clearance data (keyed by documentType)
+  final Map<String, TextEditingController> _controlControllers = {};
+  final Map<String, XFile?> _purokFiles = {};
+  final Map<String, Uint8List?> _purokBytes = {};
 
   static const _docTypes = [
     'Barangay Clearance',
@@ -51,7 +52,6 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   final Set<String> _selectedDocs = {};
   String? _purpose;
   final _detailsController = TextEditingController();
-  final _controlNumberController = TextEditingController();
   bool _isLoading = false;
 
   @override
@@ -59,9 +59,26 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     super.initState();
     if (widget.preselectedType != null) {
       _selectedDocs.add(widget.preselectedType!);
+      _ensureDocData(widget.preselectedType!);
     }
-    _controlNumberController.addListener(() => setState(() {}));
     _loadPricesAndEligibility();
+  }
+
+  void _ensureDocData(String doc) {
+    if (!_controlControllers.containsKey(doc)) {
+      final ctrl = TextEditingController();
+      ctrl.addListener(() => setState(() {}));
+      _controlControllers[doc] = ctrl;
+      _purokFiles[doc] = null;
+      _purokBytes[doc] = null;
+    }
+  }
+
+  void _removeDocData(String doc) {
+    _controlControllers[doc]?.dispose();
+    _controlControllers.remove(doc);
+    _purokFiles.remove(doc);
+    _purokBytes.remove(doc);
   }
 
   Future<void> _loadPricesAndEligibility() async {
@@ -111,25 +128,34 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   @override
   void dispose() {
     _detailsController.dispose();
-    _controlNumberController.dispose();
+    for (final ctrl in _controlControllers.values) {
+      ctrl.dispose();
+    }
     super.dispose();
   }
 
   bool get _canProceed =>
       _selectedDocs.isNotEmpty &&
       _purpose != null &&
-      _photoBytes != null &&
-      _controlNumberController.text.trim().isNotEmpty;
+      _selectedDocs.every((doc) =>
+          _purokBytes[doc] != null &&
+          (_controlControllers[doc]?.text.trim().isNotEmpty ?? false));
 
   List<Map<String, String>> get _items => _selectedDocs.map((doc) => {
         'documentType': doc,
         'purpose': _purpose!,
         'additionalDetails': _detailsController.text.trim(),
-        'controlNumber': _controlNumberController.text.trim(),
+        'controlNumber': _controlControllers[doc]?.text.trim() ?? '',
         'deliveryMethod': 'Pick up at Barangay Office',
       }).toList();
 
-  Future<void> _capturePhoto() async {
+  List<Uint8List> get _purokPhotoBytes =>
+      _selectedDocs.map((doc) => _purokBytes[doc]!).toList();
+
+  List<String> get _purokPhotoFileNames =>
+      _selectedDocs.map((doc) => _purokFiles[doc]?.name ?? 'clearance.jpg').toList();
+
+  Future<void> _capturePurok(String doc) async {
     final file = await ImagePicker().pickImage(
       source: ImageSource.camera,
       imageQuality: 85,
@@ -147,8 +173,8 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
       return;
     }
     setState(() {
-      _photoFile = file;
-      _photoBytes = bytes;
+      _purokFiles[doc] = file;
+      _purokBytes[doc] = bytes;
     });
   }
 
@@ -157,8 +183,8 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     try {
       final result = await ApiService.createBulkRequest(
         items: _items,
-        requestPhotoBytes: _photoBytes!,
-        requestPhotoFileName: _photoFile!.name,
+        purokPhotoBytes: _purokPhotoBytes,
+        purokPhotoFileNames: _purokPhotoFileNames,
       );
       if (!mounted) return;
       if (result['statusCode'] == 201) {
@@ -194,8 +220,8 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
           items: _items,
           prices: {for (final d in _selectedDocs) d: _prices[d] ?? 0.0},
           totalPhp: _totalPrice,
-          requestPhotoBytes: _photoBytes!,
-          requestPhotoFileName: _photoFile!.name,
+          purokPhotoBytes: _purokPhotoBytes,
+          purokPhotoFileNames: _purokPhotoFileNames,
           onPaid: () {
             Navigator.pop(context);
             Navigator.pushReplacement(
@@ -236,8 +262,10 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
                   onChanged: (checked) => setState(() {
                     if (checked) {
                       _selectedDocs.add(type);
+                      _ensureDocData(type);
                     } else {
                       _selectedDocs.remove(type);
+                      _removeDocData(type);
                     }
                   }),
                 )),
@@ -254,36 +282,17 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
             ),
             const SizedBox(height: 20),
 
-            // ── Control Number ────────────────────────────────────────
-            _sectionLabel('Control Number *'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _controlNumberController,
-              style: const TextStyle(fontSize: 14, color: Colors.black87),
-              decoration: InputDecoration(
-                hintText: 'Enter control number',
-                hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none),
+            // ── Per-document purok clearance + control number ─────────
+            if (_selectedDocs.isNotEmpty) ...[
+              _sectionLabel('Purok Clearance per Document *'),
+              const SizedBox(height: 4),
+              const Text(
+                'Each document requires its own Purok Clearance photo and Control Number.',
+                style: TextStyle(fontSize: 12, color: Colors.black45),
               ),
-            ),
-            const SizedBox(height: 20),
-
-            // ── Camera Photo ──────────────────────────────────────────
-            _sectionLabel('Photo (Camera Required) *'),
-            const SizedBox(height: 4),
-            const Text(
-              'Take a photo as proof for your document request.',
-              style: TextStyle(fontSize: 12, color: Colors.black45),
-            ),
-            const SizedBox(height: 8),
-            _buildPhotoCapture(),
-            const SizedBox(height: 20),
+              const SizedBox(height: 12),
+              ..._selectedDocs.map((doc) => _buildDocClearanceSection(doc)),
+            ],
 
             // ── Additional Details ────────────────────────────────────
             _sectionLabel('Additional Details'),
@@ -432,66 +441,145 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     );
   }
 
-  Widget _buildPhotoCapture() {
-    return GestureDetector(
-      onTap: _capturePhoto,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-        decoration: BoxDecoration(
-          color: _photoBytes != null
-              ? const Color(0xFFE8F5E9)
-              : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: _photoBytes != null ? _green : Colors.black12,
-            width: _photoBytes != null ? 1.5 : 1,
-          ),
+  Widget _buildDocClearanceSection(String doc) {
+    final bytes = _purokBytes[doc];
+    final ctrl = _controlControllers[doc]!;
+    final hasPhoto = bytes != null;
+    final hasCtrl = ctrl.text.trim().isNotEmpty;
+    final complete = hasPhoto && hasCtrl;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: complete ? _green : Colors.black12,
+          width: complete ? 1.5 : 1,
         ),
-        child: _photoBytes == null
-            ? const Column(
-                children: [
-                  Icon(Icons.camera_alt_rounded,
-                      color: Colors.black38, size: 36),
-                  SizedBox(height: 8),
-                  Text('Tap to take a photo',
-                      style: TextStyle(color: Colors.black54, fontSize: 13)),
-                  SizedBox(height: 4),
-                  Text('Camera only  •  Max 5MB',
-                      style: TextStyle(color: Colors.black38, fontSize: 11)),
-                ],
-              )
-            : Column(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child:
-                        Image.memory(_photoBytes!, height: 140, fit: BoxFit.cover),
-                  ),
-                  const SizedBox(height: 8),
-                  const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.check_circle_rounded,
-                          size: 16, color: Color(0xFF1A6B1A)),
-                      SizedBox(width: 6),
-                      Text('Photo captured',
-                          style: TextStyle(
-                              color: Color(0xFF1A6B1A),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                  TextButton.icon(
-                    onPressed: _capturePhoto,
-                    icon: const Icon(Icons.camera_alt_rounded,
-                        size: 14, color: Color(0xFF1A6B1A)),
-                    label: const Text('Retake Photo',
-                        style: TextStyle(
-                            color: Color(0xFF1A6B1A), fontSize: 12)),
-                  ),
-                ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Icon(_docIcons[doc] ?? Icons.description_outlined,
+                  color: _green, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  doc,
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black87),
+                ),
               ),
+              if (complete)
+                const Icon(Icons.check_circle_rounded,
+                    size: 18, color: Color(0xFF1A6B1A)),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Purok clearance photo
+          const Text('Purok Clearance Photo *',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black54)),
+          const SizedBox(height: 6),
+          GestureDetector(
+            onTap: () => _capturePurok(doc),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+              decoration: BoxDecoration(
+                color: hasPhoto
+                    ? const Color(0xFFE8F5E9)
+                    : const Color(0xFFF5F5F5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: hasPhoto ? _green : Colors.black12,
+                    width: hasPhoto ? 1.5 : 1),
+              ),
+              child: hasPhoto
+                  ? Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(bytes!,
+                              height: 110, fit: BoxFit.cover,
+                              width: double.infinity),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.check_circle_rounded,
+                                size: 14, color: Color(0xFF1A6B1A)),
+                            const SizedBox(width: 4),
+                            const Text('Photo captured',
+                                style: TextStyle(
+                                    color: Color(0xFF1A6B1A),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600)),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () => _capturePurok(doc),
+                              child: const Text('Retake',
+                                  style: TextStyle(
+                                      color: Colors.black38,
+                                      fontSize: 11,
+                                      decoration: TextDecoration.underline)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    )
+                  : const Column(
+                      children: [
+                        Icon(Icons.camera_alt_rounded,
+                            color: Colors.black38, size: 28),
+                        SizedBox(height: 6),
+                        Text('Tap to take photo',
+                            style:
+                                TextStyle(color: Colors.black54, fontSize: 12)),
+                        Text('Camera only  •  Max 5MB',
+                            style: TextStyle(
+                                color: Colors.black38, fontSize: 10)),
+                      ],
+                    ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Control number
+          const Text('Control Number *',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black54)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: ctrl,
+            style: const TextStyle(fontSize: 14, color: Colors.black87),
+            decoration: InputDecoration(
+              hintText: 'Enter control number',
+              hintStyle:
+                  const TextStyle(color: Colors.black38, fontSize: 13),
+              filled: true,
+              fillColor: const Color(0xFFF5F5F5),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -589,16 +677,16 @@ class _PaymentSheet extends StatefulWidget {
   final List<Map<String, String>> items;
   final Map<String, double> prices;
   final double totalPhp;
-  final Uint8List requestPhotoBytes;
-  final String requestPhotoFileName;
+  final List<Uint8List> purokPhotoBytes;
+  final List<String> purokPhotoFileNames;
   final VoidCallback onPaid;
 
   const _PaymentSheet({
     required this.items,
     required this.prices,
     required this.totalPhp,
-    required this.requestPhotoBytes,
-    required this.requestPhotoFileName,
+    required this.purokPhotoBytes,
+    required this.purokPhotoFileNames,
     required this.onPaid,
   });
 
@@ -632,8 +720,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     try {
       final result = await ApiService.createCheckoutSession(
         items: widget.items,
-        requestPhotoBytes: widget.requestPhotoBytes,
-        requestPhotoFileName: widget.requestPhotoFileName,
+        purokPhotoBytes: widget.purokPhotoBytes,
+        purokPhotoFileNames: widget.purokPhotoFileNames,
       );
 
       if (result['statusCode'] != 201) {
@@ -727,15 +815,26 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                   color: Colors.black87)),
           const SizedBox(height: 16),
 
-          ...widget.items.map((item) => _summaryRow(
-                Icons.description_outlined,
-                item['documentType']!,
-                '₱${(widget.prices[item['documentType']] ?? 0.0).toStringAsFixed(2)}',
+          ...widget.items.map((item) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _summaryRow(
+                    Icons.description_outlined,
+                    item['documentType']!,
+                    '₱${(widget.prices[item['documentType']] ?? 0.0).toStringAsFixed(2)}',
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 26, bottom: 6),
+                    child: Text(
+                      'Control No. ${item['controlNumber'] ?? '—'}',
+                      style: const TextStyle(
+                          fontSize: 11, color: Colors.black45),
+                    ),
+                  ),
+                ],
               )),
           _summaryRow(Icons.info_outline_rounded, 'Purpose',
               widget.items.first['purpose']!),
-          _summaryRow(Icons.tag_rounded, 'Control No.',
-              widget.items.first['controlNumber'] ?? '—'),
           const Divider(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

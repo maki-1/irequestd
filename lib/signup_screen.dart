@@ -145,7 +145,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
           setState(() => _usernameStatus = available ? 'available' : 'taken');
         }
       } catch (_) {
-        if (mounted) setState(() => _usernameStatus = '');
+        if (mounted && _usernameController.text == value) {
+          setState(() => _usernameStatus = 'available');
+        }
       }
     });
   }
@@ -232,7 +234,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     return _usernameStatus == 'available' &&
         _contactStatus == 'available' &&
         emailOk &&
-        _passwordStrength >= 4 &&
+        _passwordStrength >= 3 &&
         _passwordsMatch &&
         !_isLoading;
   }

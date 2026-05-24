@@ -38,12 +38,20 @@ router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, r
       return res.status(400).json({ message: 'Invalid birthday date' });
     }
 
+    const today = new Date();
+    let age = today.getFullYear() - parsedBirthday.getFullYear();
+    const monthDiff = today.getMonth() - parsedBirthday.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < parsedBirthday.getDate())) {
+      age--;
+    }
+
     const updateData = {
       user: req.user.id,
       fullName: fullName.trim(),
       address: address.trim(),
       birthday: parsedBirthday,
-      sex: sex.trim(),
+      age,
+      gender: sex.trim(),
       indigent: indigent.trim(),
       yearsOfResidency,
       motherName: motherName.trim(),

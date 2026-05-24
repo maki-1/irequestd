@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
@@ -45,6 +46,8 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
   Uint8List? _idFrontBytes;
   Uint8List? _idBackBytes;
   Uint8List? _idFaceCrop;
+  String? _idFrontCroppedPath;
+  String? _idBackCroppedPath;
 
   // Second ID (secondary type only)
   String? _idName2;
@@ -52,6 +55,8 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
   XFile? _idBack2;
   Uint8List? _idFrontBytes2;
   Uint8List? _idBackBytes2;
+  String? _idFrontCroppedPath2;
+  String? _idBackCroppedPath2;
 
   bool get _needsBack => !_singlePageIds.contains(_idName);
   bool get _needsBack2 => !_singlePageIds.contains(_idName2);
@@ -142,6 +147,14 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
     }
   }
 
+  Future<String> _saveCroppedTemp(Uint8List bytes, String tag) async {
+    final tmp = File(
+      '${Directory.systemTemp.path}/id_${tag}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+    );
+    await tmp.writeAsBytes(bytes);
+    return tmp.path;
+  }
+
   // Open the live camera scanner and wait for a captured photo + optional face crop
   Future<void> _scanId({required bool isFront}) async {
     final result = await Navigator.push<(XFile, Uint8List?)?>(
@@ -161,14 +174,17 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
     final (photo, faceCrop) = result;
     final raw = await photo.readAsBytes();
     final displayBytes = _cropToCardFrame(raw);
+    final croppedPath = await _saveCroppedTemp(displayBytes, isFront ? 'front' : 'back');
     setState(() {
       if (isFront) {
         _idFront = photo;
         _idFrontBytes = displayBytes;
+        _idFrontCroppedPath = croppedPath;
         _idFaceCrop = faceCrop;
       } else {
         _idBack = photo;
         _idBackBytes = displayBytes;
+        _idBackCroppedPath = croppedPath;
       }
     });
   }
@@ -191,13 +207,16 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
     final (photo, _) = result;
     final raw = await photo.readAsBytes();
     final displayBytes = _cropToCardFrame(raw);
+    final croppedPath = await _saveCroppedTemp(displayBytes, isFront ? 'front2' : 'back2');
     setState(() {
       if (isFront) {
         _idFront2 = photo;
         _idFrontBytes2 = displayBytes;
+        _idFrontCroppedPath2 = croppedPath;
       } else {
         _idBack2 = photo;
         _idBackBytes2 = displayBytes;
+        _idBackCroppedPath2 = croppedPath;
       }
     });
   }
@@ -210,13 +229,13 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
         builder: (_) => FaceRecognitionScreen(
           idType: _idType!,
           idName: _idName!,
-          idFrontPath: _idFront!.path,
-          idBackPath: _idBack?.path ?? '',
+          idFrontPath: _idFrontCroppedPath ?? _idFront!.path,
+          idBackPath: _idBackCroppedPath ?? _idBack?.path ?? '',
           idFaceCrop: _idFaceCrop,
           idFrontBytes: _idFrontBytes,
           idName2: _idName2,
-          idFrontPath2: _idFront2?.path,
-          idBackPath2: _idBack2?.path,
+          idFrontPath2: _idFrontCroppedPath2 ?? _idFront2?.path,
+          idBackPath2: _idBackCroppedPath2 ?? _idBack2?.path,
         ),
       ),
     );
@@ -304,8 +323,8 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                       items: _idOptions,
                       onChanged: (v) => setState(() {
                         _idName = v;
-                        _idFront = null; _idFrontBytes = null;
-                        _idBack = null; _idBackBytes = null;
+                        _idFront = null; _idFrontBytes = null; _idFrontCroppedPath = null;
+                        _idBack = null; _idBackBytes = null; _idBackCroppedPath = null;
                         _idFaceCrop = null;
                       }),
                     ),
@@ -317,7 +336,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                 isFront: true,
                 bytes: _idFrontBytes,
                 onScan: () => _scanId(isFront: true),
-                onClear: () => setState(() { _idFront = null; _idFrontBytes = null; }),
+                onClear: () => setState(() { _idFront = null; _idFrontBytes = null; _idFrontCroppedPath = null; }),
               ),
               const SizedBox(height: 14),
 
@@ -328,7 +347,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                   isFront: false,
                   bytes: _idBackBytes,
                   onScan: () => _scanId(isFront: false),
-                  onClear: () => setState(() { _idBack = null; _idBackBytes = null; }),
+                  onClear: () => setState(() { _idBack = null; _idBackBytes = null; _idBackCroppedPath = null; }),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -366,8 +385,8 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                         items: _secondIdOptions,
                         onChanged: (v) => setState(() {
                           _idName2 = v;
-                          _idFront2 = null; _idFrontBytes2 = null;
-                          _idBack2 = null; _idBackBytes2 = null;
+                          _idFront2 = null; _idFrontBytes2 = null; _idFrontCroppedPath2 = null;
+                          _idBack2 = null; _idBackBytes2 = null; _idBackCroppedPath2 = null;
                         }),
                       ),
                 const SizedBox(height: 14),
@@ -376,7 +395,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                   isFront: true,
                   bytes: _idFrontBytes2,
                   onScan: () => _scanId2(isFront: true),
-                  onClear: () => setState(() { _idFront2 = null; _idFrontBytes2 = null; }),
+                  onClear: () => setState(() { _idFront2 = null; _idFrontBytes2 = null; _idFrontCroppedPath2 = null; }),
                 ),
                 const SizedBox(height: 14),
                 if (_needsBack2) ...[
@@ -385,7 +404,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                     isFront: false,
                     bytes: _idBackBytes2,
                     onScan: () => _scanId2(isFront: false),
-                    onClear: () => setState(() { _idBack2 = null; _idBackBytes2 = null; }),
+                    onClear: () => setState(() { _idBack2 = null; _idBackBytes2 = null; _idBackCroppedPath2 = null; }),
                   ),
                   const SizedBox(height: 16),
                 ],
@@ -549,12 +568,12 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
       onTap: () => setState(() {
         _idType = value;
         _idName = null;
-        _idFront = null; _idFrontBytes = null;
-        _idBack = null; _idBackBytes = null;
+        _idFront = null; _idFrontBytes = null; _idFrontCroppedPath = null;
+        _idBack = null; _idBackBytes = null; _idBackCroppedPath = null;
         _idFaceCrop = null;
         _idName2 = null;
-        _idFront2 = null; _idFrontBytes2 = null;
-        _idBack2 = null; _idBackBytes2 = null;
+        _idFront2 = null; _idFrontBytes2 = null; _idFrontCroppedPath2 = null;
+        _idBack2 = null; _idBackBytes2 = null; _idBackCroppedPath2 = null;
       }),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -798,8 +817,9 @@ class _IdCameraPageState extends State<_IdCameraPage>
   }
 
   // Returns true if enough name parts from [registeredName] appear in [ocrText].
-  // Short names (≤3 parts): ALL must match.
-  // Longer names (4+ parts): all minus 1, allowing for an abbreviated middle name.
+  // If 3 or more tokens exist: pass when at least 3 match (tolerates abbreviated
+  // middle names, initials, OCR misreads, or missing suffixes).
+  // Shorter names (< 3 tokens): all tokens must match.
   bool _nameFoundInOcr(String registeredName, String ocrText) {
     final tokens = registeredName
         .toLowerCase()
@@ -813,9 +833,9 @@ class _IdCameraPageState extends State<_IdCameraPage>
     final ocrNorm = ocrText.toLowerCase().replaceAll(RegExp(r'[^a-z\s]'), '');
     final matched = tokens.where((t) => ocrNorm.contains(t)).length;
 
-    // Short names: all tokens must match
-    // Longer names: allow 1 miss (e.g. middle name abbreviated on ID)
-    final required = tokens.length <= 3 ? tokens.length : tokens.length - 1;
+    // If the name has 3+ meaningful words, passing 3 is enough.
+    // For very short names (1–2 words), all must match.
+    final required = tokens.length < 3 ? tokens.length : 3;
     return matched >= required;
   }
 

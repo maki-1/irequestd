@@ -105,7 +105,8 @@ router.get('/claimed', async (req, res) => {
 });
 
 // POST /api/requests/bulk  (free multi-doc submission)
-router.post('/bulk', uploadRequestPhoto.single('requestPhoto'), async (req, res) => {
+// Each document requires its own purok clearance photo (field: purokClearances[])
+router.post('/bulk', uploadRequestPhoto.array('purokClearances', 10), async (req, res) => {
   try {
     let items;
     try {
@@ -116,13 +117,12 @@ router.post('/bulk', uploadRequestPhoto.single('requestPhoto'), async (req, res)
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'At least one document item is required' });
     }
-    if (!req.file) {
-      return res.status(400).json({ message: 'A photo is required for every document request' });
+    const files = req.files || [];
+    if (files.length !== items.length) {
+      return res.status(400).json({ message: 'A purok clearance photo is required for each document' });
     }
 
-    const requestPhotoUrl = req.file.path;
-
-    const requests = await Promise.all(items.map((item) =>
+    const requests = await Promise.all(items.map((item, i) =>
       Request.create({
         user: req.user.id,
         documentType: item.documentType,
@@ -130,7 +130,7 @@ router.post('/bulk', uploadRequestPhoto.single('requestPhoto'), async (req, res)
         additionalDetails: item.additionalDetails || '',
         deliveryMethod: item.deliveryMethod || 'Pick up at Barangay Office',
         controlNumber: (item.controlNumber || '').trim(),
-        requestPhoto: requestPhotoUrl,
+        requestPhoto: files[i].path,
       })
     ));
 

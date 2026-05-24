@@ -28,7 +28,8 @@ function paymongoAuth() {
 // Accepts multipart: items (JSON string), requestPhoto file, per-item controlNumber inside items.
 // Creates one PayMongo checkout session with multiple line items + one Request per doc.
 // Returns { checkoutUrl, sessionId, requestIds }
-router.post('/create-session', authMiddleware, uploadRequestPhoto.single('requestPhoto'), async (req, res) => {
+// Each document requires its own purok clearance photo (field: purokClearances[])
+router.post('/create-session', authMiddleware, uploadRequestPhoto.array('purokClearances', 10), async (req, res) => {
   try {
     let items;
     try {
@@ -39,15 +40,15 @@ router.post('/create-session', authMiddleware, uploadRequestPhoto.single('reques
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'At least one document item is required' });
     }
-    if (!req.file) {
-      return res.status(400).json({ message: 'A photo is required for every document request' });
+    const files = req.files || [];
+    if (files.length !== items.length) {
+      return res.status(400).json({ message: 'A purok clearance photo is required for each document' });
     }
     for (const item of items) {
       if (!item.documentType || !item.purpose || !item.deliveryMethod) {
         return res.status(400).json({ message: 'Each item requires documentType, purpose, and deliveryMethod' });
       }
     }
-    const requestPhotoUrl = req.file.path;
 
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
     const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://irequestd.onrender.com/payment/cancel';
@@ -98,8 +99,8 @@ router.post('/create-session', authMiddleware, uploadRequestPhoto.single('reques
     const sessionId = sessionData.id;
     const checkoutUrl = sessionData.attributes.checkout_url;
 
-    // Create one Request record per document
-    const requests = await Promise.all(itemsWithPrice.map((item) =>
+    // Create one Request record per document, each with its own purok clearance photo
+    const requests = await Promise.all(itemsWithPrice.map((item, i) =>
       Request.create({
         user: req.user.id,
         documentType: item.documentType,
@@ -107,7 +108,7 @@ router.post('/create-session', authMiddleware, uploadRequestPhoto.single('reques
         additionalDetails: item.additionalDetails || '',
         deliveryMethod: item.deliveryMethod,
         controlNumber: (item.controlNumber || '').trim(),
-        requestPhoto: requestPhotoUrl,
+        requestPhoto: files[i].path,
         paymentStatus: 'unpaid',
         paymentSessionId: sessionId,
         amountPaid: 0,
