@@ -249,8 +249,9 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Request must be approved by Purok Leader before payment' });
     }
 
-    const priceCentavos = await getPriceCentavos(request.documentType);
-    const purokFeeCentavos = await getPurokFeeCentavos();
+    const priceCentavos    = await getPriceCentavos(request.documentType);
+    // Use the fee set at approval time (stored in PHP → convert to centavos)
+    const purokFeeCentavos = Math.round((request.purokClearanceFee || 0) * 100);
 
     const lineItems = [
       {
@@ -303,7 +304,6 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
     const checkoutUrl  = sessionData.attributes.checkout_url;
 
     request.paymentSessionId = newSessionId;
-    request.purokClearanceFee = purokFeeCentavos / 100;
     await request.save();
 
     res.json({
