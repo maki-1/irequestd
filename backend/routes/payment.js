@@ -55,7 +55,7 @@ router.post('/create-session', authMiddleware, async (req, res) => {
     const requests = await Request.find({
       _id: { $in: requestIds },
       user: req.user.id,
-      purokLeaderStatus: { $regex: /^approved$/i },
+      purokLeaderStatus: 'approved',
       paymentStatus: 'unpaid',
     });
 
@@ -245,7 +245,7 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
     if (!request) {
       return res.status(404).json({ message: 'Unpaid request not found' });
     }
-    if (request.purokLeaderStatus?.toLowerCase() !== 'approved') {
+    if (request.purokLeaderStatus !== 'approved') {
       return res.status(400).json({ message: 'Request must be approved by Purok Leader before payment' });
     }
 

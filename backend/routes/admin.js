@@ -212,7 +212,7 @@ router.get('/requests', async (req, res) => {
     const { purokLeaderStatus = 'all', page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const filter = {};
-    if (purokLeaderStatus !== 'all') filter.purokLeaderStatus = { $regex: new RegExp(`^${purokLeaderStatus}$`, 'i') };
+    if (purokLeaderStatus !== 'all') filter.purokLeaderStatus = purokLeaderStatus.toLowerCase();
 
     const [requests, total] = await Promise.all([
       Request.find(filter)
@@ -236,11 +236,11 @@ router.put('/requests/:id/purok-approve', async (req, res) => {
   try {
     const request = await Request.findByIdAndUpdate(
       req.params.id,
-      { purokLeaderStatus: 'Approved', purokLeaderApprovedAt: new Date() },
+      { purokLeaderStatus: 'approved', purokLeaderApprovedAt: new Date() },
       { new: true }
     );
     if (!request) return res.status(404).json({ message: 'Request not found' });
-    res.json({ message: 'Purok clearance approved', purokLeaderStatus: 'Approved' });
+    res.json({ message: 'Purok clearance approved', purokLeaderStatus: 'approved' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -252,11 +252,11 @@ router.put('/requests/:id/purok-reject', async (req, res) => {
   try {
     const request = await Request.findByIdAndUpdate(
       req.params.id,
-      { purokLeaderStatus: 'Rejected' },
+      { purokLeaderStatus: 'rejected' },
       { new: true }
     );
     if (!request) return res.status(404).json({ message: 'Request not found' });
-    res.json({ message: 'Purok clearance rejected', purokLeaderStatus: 'Rejected' });
+    res.json({ message: 'Purok clearance rejected', purokLeaderStatus: 'rejected' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
