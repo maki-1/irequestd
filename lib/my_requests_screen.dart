@@ -95,6 +95,22 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
     }
   }
 
+  Color _purokStatusColor(String s) {
+    switch (s) {
+      case 'Approved': return Colors.green;
+      case 'Rejected': return Colors.red;
+      default: return Colors.orange;
+    }
+  }
+
+  IconData _purokStatusIcon(String s) {
+    switch (s) {
+      case 'Approved': return Icons.verified_outlined;
+      case 'Rejected': return Icons.cancel_outlined;
+      default: return Icons.hourglass_empty_rounded;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pickupCount = _readyForPickup.length;
@@ -540,16 +556,34 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
   }
 
   Widget _buildCard(Map<String, dynamic> r) {
-    final status        = r['status']        as String? ?? 'Pending';
-    final paymentStatus = r['paymentStatus'] as String? ?? 'paid';
+    final status           = r['status']            as String? ?? 'Pending';
+    final paymentStatus    = r['paymentStatus']     as String? ?? 'unpaid';
+    final purokLeaderStatus = r['purokLeaderStatus'] as String? ?? 'Pending';
     final docType  = r['documentType'] as String? ?? r['title'] as String? ?? '—';
     final reqId    = (r['_id'] as String).substring(0, 8).toUpperCase();
     final submitted = _formatDate(r['createdAt'] as String);
 
-    final isUnpaid = status == 'Pending' && paymentStatus == 'unpaid';
-    final color = isUnpaid ? const Color(0xFFE65100) : _statusColor(status);
+    // Awaiting Purok Leader approval
+    final awaitingApproval = purokLeaderStatus == 'Pending';
+    // Rejected by Purok Leader
+    final purokRejected = purokLeaderStatus == 'Rejected';
+    // Approved and payment still needed
+    final needsPayment = purokLeaderStatus == 'Approved' && paymentStatus == 'unpaid';
+    // Fully paid, normal document status flow
+    final isPaid = paymentStatus == 'paid';
 
-    void openRetrySheet() {
+    Color color;
+    if (awaitingApproval) {
+      color = Colors.orange;
+    } else if (purokRejected) {
+      color = Colors.red;
+    } else if (needsPayment) {
+      color = const Color(0xFFE65100);
+    } else {
+      color = _statusColor(status);
+    }
+
+    void openPaySheet() {
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -566,11 +600,15 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
     }
 
     return GestureDetector(
-      onTap: isUnpaid ? openRetrySheet : null,
+      onTap: needsPayment ? openPaySheet : null,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
-          color: isUnpaid ? const Color(0xFFFFF3E0) : Colors.white,
+          color: needsPayment
+              ? const Color(0xFFFFF3E0)
+              : awaitingApproval
+                  ? const Color(0xFFFFF8E1)
+                  : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border(left: BorderSide(color: color, width: 4)),
           boxShadow: [
@@ -615,12 +653,22 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          isUnpaid ? Icons.payment_outlined : _statusIcon(status),
+                          needsPayment
+                              ? Icons.payment_outlined
+                              : isPaid
+                                  ? _statusIcon(status)
+                                  : _purokStatusIcon(purokLeaderStatus),
                           size: 13, color: color,
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          isUnpaid ? 'Unpaid' : status,
+                          needsPayment
+                              ? 'Pay Now'
+                              : isPaid
+                                  ? status
+                                  : purokLeaderStatus == 'Pending'
+                                      ? 'Awaiting Approval'
+                                      : 'Purok Rejected',
                           style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
@@ -648,16 +696,36 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                     style: const TextStyle(fontSize: 12, color: Colors.black54)),
               ],
 
-              // Action row
-              if (isUnpaid) ...[
+              // Purok leader status row (when paid, show doc processing status)
+              if (awaitingApproval) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: const [
+                    Icon(Icons.hourglass_empty_rounded, size: 13, color: Colors.orange),
+                    SizedBox(width: 4),
+                    Text('Awaiting Purok Leader approval',
+                        style: TextStyle(fontSize: 11, color: Colors.orange)),
+                  ],
+                ),
+              ] else if (purokRejected) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: const [
+                    Icon(Icons.cancel_outlined, size: 13, color: Colors.red),
+                    SizedBox(width: 4),
+                    Text('Rejected by Purok Leader',
+                        style: TextStyle(fontSize: 11, color: Colors.red)),
+                  ],
+                ),
+              ] else if (needsPayment) ...[
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   height: 40,
                   child: ElevatedButton.icon(
-                    onPressed: openRetrySheet,
+                    onPressed: openPaySheet,
                     icon: const Icon(Icons.payment_rounded, size: 16),
-                    label: const Text('Complete Payment',
+                    label: const Text('Pay Now',
                         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFE65100),
@@ -678,7 +746,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                         style: TextStyle(fontSize: 11, color: Colors.orange)),
                   ],
                 ),
-              ] else if (status == 'Pending') ...[
+              ] else if (status == 'Pending' && isPaid) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: const [
@@ -730,6 +798,10 @@ class _RetryPaymentSheetState extends State<_RetryPaymentSheet> {
   int _pollCount = 0;
   static const _maxPolls = 40;
 
+  double? _docPricePHP;
+  double? _purokFeePHP;
+  double? _totalPHP;
+
   @override
   void dispose() {
     _pollTimer?.cancel();
@@ -748,8 +820,11 @@ class _RetryPaymentSheetState extends State<_RetryPaymentSheet> {
         return;
       }
 
-      _sessionId   = result['sessionId']   as String;
-      _checkoutUrl = result['checkoutUrl'] as String;
+      _sessionId    = result['sessionId']    as String;
+      _checkoutUrl  = result['checkoutUrl']  as String;
+      _docPricePHP  = (result['docPricePHP']  as num?)?.toDouble();
+      _purokFeePHP  = (result['purokFeePHP']  as num?)?.toDouble();
+      _totalPHP     = (result['totalPHP']     as num?)?.toDouble();
 
       final uri = Uri.parse(_checkoutUrl!);
       if (await canLaunchUrl(uri)) {
@@ -853,7 +928,18 @@ class _RetryPaymentSheetState extends State<_RetryPaymentSheet> {
           ),
           const SizedBox(height: 20),
           const Divider(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+
+          // Fee breakdown (shown after payment link is created)
+          if (_docPricePHP != null) ...[
+            _feeRow('Document Fee', '₱${_docPricePHP!.toStringAsFixed(2)}'),
+            const SizedBox(height: 6),
+            _feeRow('Purok Clearance Fee', '₱${(_purokFeePHP ?? 0.0).toStringAsFixed(2)}'),
+            const Divider(height: 18),
+            _feeRow('Total', '₱${(_totalPHP ?? 0.0).toStringAsFixed(2)}',
+                bold: true, color: _green),
+            const SizedBox(height: 12),
+          ],
 
           _buildStateContent(),
           const SizedBox(height: 8),
@@ -960,6 +1046,25 @@ class _RetryPaymentSheetState extends State<_RetryPaymentSheet> {
           ],
         );
     }
+  }
+
+  Widget _feeRow(String label, String value,
+      {bool bold = false, Color color = Colors.black87}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label,
+            style: TextStyle(
+                fontSize: bold ? 14 : 13,
+                fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+                color: Colors.black54)),
+        Text(value,
+            style: TextStyle(
+                fontSize: bold ? 15 : 13,
+                fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+                color: color)),
+      ],
+    );
   }
 
   Widget _statusTile(IconData icon, Color color, String title, String subtitle,

@@ -6,6 +6,7 @@ const User    = require('../models/User');
 const VerificationProfile = require('../models/VerificationProfile');
 const Request = require('../models/Request');
 const DocumentPrice = require('../models/DocumentPrice');
+const PurokClearanceFee = require('../models/PurokClearanceFee');
 
 const DEFAULT_PRICES = [
   { documentType: 'Barangay Clearance',       pricecentavos: 10000, description: 'Standard processing fee for barangay clearance (₱100.00)' },
@@ -200,6 +201,106 @@ router.put('/requests/:id/status', async (req, res) => {
     if (!request) return res.status(404).json({ message: 'Not found' });
     res.json({ message: 'Status updated', status: request.status });
   } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── GET /api/admin/requests ───────────────────────────────────────────────────
+// Lists all requests (with user info) for admin / Purok Leader review.
+router.get('/requests', async (req, res) => {
+  try {
+    const { purokLeaderStatus = 'all', page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const filter = {};
+    if (purokLeaderStatus !== 'all') filter.purokLeaderStatus = purokLeaderStatus;
+
+    const [requests, total] = await Promise.all([
+      Request.find(filter)
+        .populate('user', 'username contactNumber email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Request.countDocuments(filter),
+    ]);
+
+    res.json({ requests, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── PUT /api/admin/requests/:id/purok-approve ─────────────────────────────────
+router.put('/requests/:id/purok-approve', async (req, res) => {
+  try {
+    const request = await Request.findByIdAndUpdate(
+      req.params.id,
+      { purokLeaderStatus: 'Approved', purokLeaderApprovedAt: new Date() },
+      { new: true }
+    );
+    if (!request) return res.status(404).json({ message: 'Request not found' });
+    res.json({ message: 'Purok clearance approved', purokLeaderStatus: 'Approved' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── PUT /api/admin/requests/:id/purok-reject ──────────────────────────────────
+router.put('/requests/:id/purok-reject', async (req, res) => {
+  try {
+    const request = await Request.findByIdAndUpdate(
+      req.params.id,
+      { purokLeaderStatus: 'Rejected' },
+      { new: true }
+    );
+    if (!request) return res.status(404).json({ message: 'Request not found' });
+    res.json({ message: 'Purok clearance rejected', purokLeaderStatus: 'Rejected' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── GET /api/admin/purok-clearance-fee ────────────────────────────────────────
+router.get('/purok-clearance-fee', async (req, res) => {
+  try {
+    const fee = await PurokClearanceFee.findOne({ purokName: 'default' });
+    res.json({
+      feecentavos: fee?.feecentavos ?? 0,
+      feePHP: (fee?.feecentavos ?? 0) / 100,
+      treasurerName: fee?.treasurerName ?? '',
+      purokPresident: fee?.purokPresident ?? '',
+      description: fee?.description ?? '',
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ── PUT /api/admin/purok-clearance-fee ────────────────────────────────────────
+router.put('/purok-clearance-fee', async (req, res) => {
+  try {
+    const { feecentavos, treasurerName, purokPresident, description } = req.body;
+    if (feecentavos === undefined || typeof feecentavos !== 'number' || feecentavos < 0) {
+      return res.status(400).json({ message: 'feecentavos must be a non-negative number' });
+    }
+    const fee = await PurokClearanceFee.findOneAndUpdate(
+      { purokName: 'default' },
+      {
+        feecentavos,
+        treasurerName: treasurerName ?? '',
+        purokPresident: purokPresident ?? '',
+        description: description ?? '',
+        updatedBy: req.admin?.username ?? 'admin',
+      },
+      { new: true, upsert: true }
+    );
+    res.json(fee);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });

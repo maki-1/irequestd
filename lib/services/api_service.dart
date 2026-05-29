@@ -6,8 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Change this to your machine's IP if running on a physical device.
   // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
-  static const String _baseUrl = 'https://irequestd.onrender.com/api';
-  // static const String _baseUrl = 'http://192.168.1.43:5000/api'; // Physical device
+  // static const String _baseUrl = 'https://irequestd.onrender.com/api';
+  static const String _baseUrl = 'http://192.168.1.43:5000/api'; // Physical device
   // static const String _baseUrl = 'http://localhost:5000/api'; // Flutter Web/
 
   // ── Token helpers ────────────────────────────────────────────────────────────
@@ -412,59 +412,44 @@ class ApiService {
 
   // ── Payment endpoints ─────────────────────────────────────────────────────
 
-  /// Creates a PayMongo checkout session for one or more documents.
-  /// Sends multipart so the required camera photo can be attached.
+  /// Creates a PayMongo checkout session for approved, unpaid requests.
   /// Returns { checkoutUrl, sessionId, requestIds } on success.
   static Future<Map<String, dynamic>> createCheckoutSession({
-    required List<Map<String, String>> items,
-    required List<Uint8List> purokPhotoBytes,
-    required List<String> purokPhotoFileNames,
+    required List<String> requestIds,
   }) async {
-    final token = await getToken();
-    final request = http.MultipartRequest(
-      'POST',
+    final res = await http.post(
       Uri.parse('$_baseUrl/payment/create-session'),
+      headers: await _authHeaders(),
+      body: jsonEncode({'requestIds': requestIds}),
     );
-    if (token != null) request.headers['Authorization'] = 'Bearer $token';
-    request.fields['items'] = jsonEncode(items);
-    for (int i = 0; i < purokPhotoBytes.length; i++) {
-      request.files.add(http.MultipartFile.fromBytes(
-        'purokClearances',
-        purokPhotoBytes[i],
-        filename: purokPhotoFileNames[i],
-      ));
-    }
-    final streamed = await request.send();
-    final res = await http.Response.fromStream(streamed);
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return {'statusCode': res.statusCode, ...body};
   }
 
-  /// Creates multiple free requests in one call.
-  /// Each item must have a corresponding purok clearance photo at the same index.
+  /// Submits one or more document requests (no photos required).
+  /// Returns { statusCode, data } on success.
   static Future<Map<String, dynamic>> createBulkRequest({
     required List<Map<String, String>> items,
-    required List<Uint8List> purokPhotoBytes,
-    required List<String> purokPhotoFileNames,
   }) async {
-    final token = await getToken();
-    final request = http.MultipartRequest(
-      'POST',
+    final res = await http.post(
       Uri.parse('$_baseUrl/requests/bulk'),
+      headers: await _authHeaders(),
+      body: jsonEncode({'items': items}),
     );
-    if (token != null) request.headers['Authorization'] = 'Bearer $token';
-    request.fields['items'] = jsonEncode(items);
-    for (int i = 0; i < purokPhotoBytes.length; i++) {
-      request.files.add(http.MultipartFile.fromBytes(
-        'purokClearances',
-        purokPhotoBytes[i],
-        filename: purokPhotoFileNames[i],
-      ));
-    }
-    final streamed = await request.send();
-    final res = await http.Response.fromStream(streamed);
     final body = jsonDecode(res.body);
     return {'statusCode': res.statusCode, 'data': body};
+  }
+
+  /// Returns the current purok clearance fee.
+  static Future<Map<String, dynamic>> fetchPurokClearanceFee() async {
+    final res = await http.get(
+      Uri.parse('$_baseUrl/payment/purok-fee'),
+      headers: await _authHeaders(),
+    );
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    return {'feeCentavos': 0, 'feePHP': 0.0};
   }
 
   /// Creates a new PayMongo checkout session for an existing unpaid request.

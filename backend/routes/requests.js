@@ -3,11 +3,6 @@ const router = express.Router();
 const authMiddleware = require('../middleware/auth');
 const Request = require('../models/Request');
 const CompletedDocument = require('../models/CompletedDocument');
-const VerificationProfile = require('../models/VerificationProfile');
-const { uploadFreeProof, uploadRequestPhoto } = require('../config/cloudinary');
-const multer = require('multer');
-const upload = multer(); // memory-only fallback (unused directly)
-
 router.use(authMiddleware);
 
 // GET /api/requests
@@ -39,17 +34,11 @@ router.get('/summary', async (req, res) => {
 });
 
 // POST /api/requests
-router.post('/', uploadRequestPhoto.single('requestPhoto'), async (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    const { documentType, purpose, additionalDetails, deliveryMethod, controlNumber } = req.body;
+    const { documentType, purpose, additionalDetails, deliveryMethod } = req.body;
     if (!documentType || !purpose || !deliveryMethod) {
       return res.status(400).json({ message: 'Document type, purpose, and delivery method are required' });
-    }
-    if (!controlNumber || !controlNumber.trim()) {
-      return res.status(400).json({ message: 'Control number is required' });
-    }
-    if (!req.file) {
-      return res.status(400).json({ message: 'A photo is required for every document request' });
     }
 
     const request = await Request.create({
@@ -58,8 +47,6 @@ router.post('/', uploadRequestPhoto.single('requestPhoto'), async (req, res) => 
       purpose,
       additionalDetails: additionalDetails || '',
       deliveryMethod,
-      controlNumber: controlNumber.trim(),
-      requestPhoto: req.file.path,
     });
     res.status(201).json(request);
   } catch (err) {
@@ -104,33 +91,26 @@ router.get('/claimed', async (req, res) => {
   }
 });
 
-// POST /api/requests/bulk  (free multi-doc submission)
-// Each document requires its own purok clearance photo (field: purokClearances[])
-router.post('/bulk', uploadRequestPhoto.array('purokClearances', 10), async (req, res) => {
+// POST /api/requests/bulk  (multi-doc submission)
+router.post('/bulk', async (req, res) => {
   try {
     let items;
     try {
-      items = JSON.parse(req.body.items || '[]');
+      items = typeof req.body.items === 'string' ? JSON.parse(req.body.items) : req.body.items;
     } catch {
       return res.status(400).json({ message: 'Invalid items format' });
     }
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'At least one document item is required' });
     }
-    const files = req.files || [];
-    if (files.length !== items.length) {
-      return res.status(400).json({ message: 'A purok clearance photo is required for each document' });
-    }
 
-    const requests = await Promise.all(items.map((item, i) =>
+    const requests = await Promise.all(items.map((item) =>
       Request.create({
         user: req.user.id,
         documentType: item.documentType,
         purpose: item.purpose,
         additionalDetails: item.additionalDetails || '',
         deliveryMethod: item.deliveryMethod || 'Pick up at Barangay Office',
-        controlNumber: (item.controlNumber || '').trim(),
-        requestPhoto: files[i].path,
       })
     ));
 

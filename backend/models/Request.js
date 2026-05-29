@@ -47,8 +47,15 @@ const requestSchema = new mongoose.Schema(
     amountPaid: { type: Number, default: 0 }, // in pesos (PHP)
     orNumber: { type: String, unique: true, sparse: true },
     freeDocumentProof: { type: String, default: '' },
-    requestPhoto: { type: String, default: '' },     // Cloudinary URL — camera photo required per request
+    requestPhoto: { type: String, default: '' },
     controlNumber: { type: String, default: '' },
+    purokLeaderStatus: {
+      type: String,
+      enum: ['Pending', 'Approved', 'Rejected'],
+      default: 'Pending',
+    },
+    purokLeaderApprovedAt: { type: Date, default: null },
+    purokClearanceFee: { type: Number, default: 0 }, // in pesos (PHP), set at approval
   },
   { timestamps: true }
 );

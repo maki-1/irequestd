@@ -7,7 +7,7 @@ const Request = require('../models/Request');
 const User = require('../models/User');
 const VerificationProfile = require('../models/VerificationProfile');
 const DocumentPrice = require('../models/DocumentPrice');
-const { uploadRequestPhoto } = require('../config/cloudinary');
+const PurokClearanceFee = require('../models/PurokClearanceFee');
 
 const PAYMONGO_BASE = 'https://api.paymongo.com/v1';
 const FALLBACK_PRICE = parseInt(process.env.DOCUMENT_PRICE_CENTAVOS || '500', 10);
@@ -19,57 +19,80 @@ async function getPriceCentavos(documentType) {
   return entry ? entry.pricecentavos : FALLBACK_PRICE;
 }
 
+async function getPurokFeeCentavos() {
+  const entry = await PurokClearanceFee.findOne({ purokName: 'default' });
+  return entry ? entry.feecentavos : 0;
+}
+
+// ── GET /api/payment/purok-fee ────────────────────────────────────────────────
+router.get('/purok-fee', authMiddleware, async (req, res) => {
+  try {
+    const feeCentavos = await getPurokFeeCentavos();
+    res.json({ feeCentavos, feePHP: feeCentavos / 100 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 function paymongoAuth() {
   const key = process.env.PAYMONGO_SECRET_KEY || '';
   return `Basic ${Buffer.from(`${key}:`).toString('base64')}`;
 }
 
 // ── POST /api/payment/create-session ────────────────────────────────────────
-// Accepts multipart: items (JSON string), requestPhoto file, per-item controlNumber inside items.
-// Creates one PayMongo checkout session with multiple line items + one Request per doc.
+// Accepts JSON: { requestIds: [id, ...] }
+// Creates a PayMongo checkout session for approved, unpaid requests.
+// Adds purok clearance fee as a separate line item.
 // Returns { checkoutUrl, sessionId, requestIds }
-// Each document requires its own purok clearance photo (field: purokClearances[])
-router.post('/create-session', authMiddleware, uploadRequestPhoto.array('purokClearances', 10), async (req, res) => {
+router.post('/create-session', authMiddleware, async (req, res) => {
   try {
-    let items;
-    try {
-      items = typeof req.body.items === 'string' ? JSON.parse(req.body.items) : req.body.items;
-    } catch {
-      return res.status(400).json({ message: 'Invalid items format' });
+    const { requestIds } = req.body;
+    if (!Array.isArray(requestIds) || requestIds.length === 0) {
+      return res.status(400).json({ message: 'At least one requestId is required' });
     }
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ message: 'At least one document item is required' });
-    }
-    const files = req.files || [];
-    if (files.length !== items.length) {
-      return res.status(400).json({ message: 'A purok clearance photo is required for each document' });
-    }
-    for (const item of items) {
-      if (!item.documentType || !item.purpose || !item.deliveryMethod) {
-        return res.status(400).json({ message: 'Each item requires documentType, purpose, and deliveryMethod' });
-      }
+
+    const requests = await Request.find({
+      _id: { $in: requestIds },
+      user: req.user.id,
+      purokLeaderStatus: 'Approved',
+      paymentStatus: 'unpaid',
+    });
+
+    if (requests.length === 0) {
+      return res.status(400).json({ message: 'No approved unpaid requests found' });
     }
 
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
     const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://irequestd.onrender.com/payment/cancel';
 
-    // Resolve prices for all items
-    const itemsWithPrice = await Promise.all(items.map(async (item) => {
-      const basePriceCentavos = await getPriceCentavos(item.documentType);
-      return { ...item, basePriceCentavos };
+    const purokFeeCentavos = await getPurokFeeCentavos();
+
+    const docLineItems = await Promise.all(requests.map(async (r) => {
+      const priceCentavos = await getPriceCentavos(r.documentType);
+      return {
+        currency: 'PHP',
+        amount: priceCentavos,
+        description: r.purpose,
+        name: r.documentType,
+        quantity: 1,
+      };
     }));
 
-    const lineItems = itemsWithPrice.map((item) => ({
-      currency: 'PHP',
-      amount: item.basePriceCentavos,
-      description: `${item.purpose}${item.additionalDetails ? ` — ${item.additionalDetails}` : ''}`,
-      name: item.documentType,
-      quantity: 1,
-    }));
+    const lineItems = [...docLineItems];
+    if (purokFeeCentavos > 0) {
+      lineItems.push({
+        currency: 'PHP',
+        amount: purokFeeCentavos,
+        description: 'Purok Clearance Fee',
+        name: 'Purok Clearance',
+        quantity: 1,
+      });
+    }
 
-    const description = items.length === 1
-      ? `iRequestD — ${items[0].documentType}`
-      : `iRequestD — ${items.length} Documents`;
+    const description = requests.length === 1
+      ? `iRequestD — ${requests[0].documentType}`
+      : `iRequestD — ${requests.length} Documents`;
 
     const pmRes = await axios.post(
       `${PAYMONGO_BASE}/checkout_sessions`,
@@ -99,27 +122,15 @@ router.post('/create-session', authMiddleware, uploadRequestPhoto.array('purokCl
     const sessionId = sessionData.id;
     const checkoutUrl = sessionData.attributes.checkout_url;
 
-    // Create one Request record per document, each with its own purok clearance photo
-    const requests = await Promise.all(itemsWithPrice.map((item, i) =>
-      Request.create({
-        user: req.user.id,
-        documentType: item.documentType,
-        purpose: item.purpose,
-        additionalDetails: item.additionalDetails || '',
-        deliveryMethod: item.deliveryMethod,
-        controlNumber: (item.controlNumber || '').trim(),
-        requestPhoto: files[i].path,
-        paymentStatus: 'unpaid',
-        paymentSessionId: sessionId,
-        amountPaid: 0,
-      })
-    ));
+    await Promise.all(requests.map((r) => {
+      r.paymentSessionId = sessionId;
+      return r.save();
+    }));
 
     res.status(201).json({
       checkoutUrl,
       sessionId,
       requestIds: requests.map((r) => r._id),
-      requestId: requests[0]._id, // backward compat
     });
   } catch (err) {
     console.error('PayMongo create-session error:', err?.response?.data || err.message);
@@ -155,10 +166,11 @@ router.get('/status/:sessionId', authMiddleware, async (req, res) => {
     const isPaid = sessionStatus === 'completed' || paymentIntentStatus === 'succeeded';
 
     if (isPaid) {
+      const purokFeeCentavos = await getPurokFeeCentavos();
       await Promise.all(requests.map(async (r) => {
         const PRICE = await getPriceCentavos(r.documentType);
         r.paymentStatus = 'paid';
-        r.amountPaid = PRICE / 100;
+        r.amountPaid = (PRICE + purokFeeCentavos) / 100;
         await r.save();
       }));
 
@@ -221,7 +233,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 });
 
 // ── POST /api/payment/retry-session/:requestId ──────────────────────────────
-// Creates a new checkout session for an existing unpaid request.
+// Creates a new checkout session for an approved, unpaid request.
+// Includes purok clearance fee as a line item.
 router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
   try {
     const request = await Request.findOne({
@@ -232,8 +245,12 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
     if (!request) {
       return res.status(404).json({ message: 'Unpaid request not found' });
     }
+    if (request.purokLeaderStatus !== 'Approved') {
+      return res.status(400).json({ message: 'Request must be approved by Purok Leader before payment' });
+    }
 
     const priceCentavos = await getPriceCentavos(request.documentType);
+    const purokFeeCentavos = await getPurokFeeCentavos();
 
     const lineItems = [
       {
@@ -244,6 +261,15 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
         quantity: 1,
       },
     ];
+    if (purokFeeCentavos > 0) {
+      lineItems.push({
+        currency: 'PHP',
+        amount: purokFeeCentavos,
+        description: 'Purok Clearance Fee',
+        name: 'Purok Clearance',
+        quantity: 1,
+      });
+    }
 
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
     const cancelUrl  = process.env.PAYMENT_CANCEL_URL  || 'https://irequestd.onrender.com/payment/cancel';
@@ -277,9 +303,17 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
     const checkoutUrl  = sessionData.attributes.checkout_url;
 
     request.paymentSessionId = newSessionId;
+    request.purokClearanceFee = purokFeeCentavos / 100;
     await request.save();
 
-    res.json({ checkoutUrl, sessionId: newSessionId, requestId: request._id });
+    res.json({
+      checkoutUrl,
+      sessionId: newSessionId,
+      requestId: request._id,
+      docPricePHP: priceCentavos / 100,
+      purokFeePHP: purokFeeCentavos / 100,
+      totalPHP: (priceCentavos + purokFeeCentavos) / 100,
+    });
   } catch (err) {
     console.error('PayMongo retry-session error:', err?.response?.data || err.message);
     res.status(500).json({ message: 'Failed to create retry checkout session' });
