@@ -427,7 +427,6 @@ class ApiService {
   }
 
   /// Submits one or more document requests (no photos required).
-  /// Returns { statusCode, data } on success.
   static Future<Map<String, dynamic>> createBulkRequest({
     required List<Map<String, String>> items,
   }) async {
@@ -437,7 +436,11 @@ class ApiService {
       body: jsonEncode({'items': items}),
     );
     final body = jsonDecode(res.body);
-    return {'statusCode': res.statusCode, 'data': body};
+    // Success returns a JSON array; errors return a JSON object with 'message'
+    if (body is List) {
+      return {'statusCode': res.statusCode};
+    }
+    return {'statusCode': res.statusCode, ...(body as Map<String, dynamic>)};
   }
 
   /// Returns the current purok clearance fee.
