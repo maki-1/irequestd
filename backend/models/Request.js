@@ -53,6 +53,13 @@ const requestSchema = new mongoose.Schema(
       type: String,
       enum: ['Pending', 'Approved', 'Rejected'],
       default: 'Pending',
+      set: (v) => {
+        if (typeof v !== 'string') return v;
+        const s = v.toLowerCase();
+        if (s === 'approved') return 'Approved';
+        if (s === 'rejected') return 'Rejected';
+        return 'Pending';
+      },
     },
     purokLeaderApprovedAt: { type: Date, default: null },
     purokClearanceFee: { type: Number, default: 0 }, // in pesos (PHP), set at approval
