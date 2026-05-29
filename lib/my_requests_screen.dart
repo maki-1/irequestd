@@ -27,7 +27,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadRequests();
+    _loadRequests(autoPayPrompt: true);
     _loadUser();
   }
 
@@ -42,24 +42,57 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
     super.dispose();
   }
 
-  Future<void> _loadRequests() async {
+  Future<void> _loadRequests({bool autoPayPrompt = false}) async {
     setState(() { _loading = true; _error = null; });
     try {
       final results = await Future.wait([
         ApiService.fetchRequests(),
         ApiService.fetchCompletedDocuments(),
       ]);
-      if (mounted) setState(() {
-        _requests = results[0];
-        _readyForPickup = results[1];
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _requests = results[0];
+          _readyForPickup = results[1];
+          _loading = false;
+        });
+        if (autoPayPrompt) _promptPendingPayment();
+      }
     } catch (_) {
       if (mounted) setState(() {
         _error = 'Failed to load requests.';
         _loading = false;
       });
     }
+  }
+
+  void _promptPendingPayment() {
+    final pending = _requests.cast<Map<String, dynamic>>().where((r) {
+      final purokStatus = (r['purokLeaderStatus'] as String? ?? 'pending').toLowerCase();
+      final payStatus   = r['paymentStatus']     as String? ?? 'unpaid';
+      return purokStatus == 'approved' && payStatus == 'unpaid';
+    }).toList();
+
+    if (pending.isEmpty || !mounted) return;
+
+    final r       = pending.first;
+    final docType = r['documentType'] as String? ?? r['title'] as String? ?? '—';
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _RetryPaymentSheet(
+          requestId: r['_id'] as String,
+          documentType: docType,
+          onPaid: () {
+            Navigator.pop(context);
+            _loadRequests();
+          },
+        ),
+      );
+    });
   }
 
   String _formatDate(String iso) {
@@ -96,17 +129,17 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
   }
 
   Color _purokStatusColor(String s) {
-    switch (s) {
-      case 'Approved': return Colors.green;
-      case 'Rejected': return Colors.red;
+    switch (s.toLowerCase()) {
+      case 'approved': return Colors.green;
+      case 'rejected': return Colors.red;
       default: return Colors.orange;
     }
   }
 
   IconData _purokStatusIcon(String s) {
-    switch (s) {
-      case 'Approved': return Icons.verified_outlined;
-      case 'Rejected': return Icons.cancel_outlined;
+    switch (s.toLowerCase()) {
+      case 'approved': return Icons.verified_outlined;
+      case 'rejected': return Icons.cancel_outlined;
       default: return Icons.hourglass_empty_rounded;
     }
   }
@@ -557,18 +590,18 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
 
   Widget _buildCard(Map<String, dynamic> r) {
     final status           = r['status']            as String? ?? 'Pending';
-    final paymentStatus    = r['paymentStatus']     as String? ?? 'unpaid';
-    final purokLeaderStatus = r['purokLeaderStatus'] as String? ?? 'Pending';
+    final paymentStatus     = r['paymentStatus']     as String? ?? 'unpaid';
+    final purokLeaderStatus = (r['purokLeaderStatus'] as String? ?? 'pending').toLowerCase();
     final docType  = r['documentType'] as String? ?? r['title'] as String? ?? '—';
     final reqId    = (r['_id'] as String).substring(0, 8).toUpperCase();
     final submitted = _formatDate(r['createdAt'] as String);
 
     // Awaiting Purok Leader approval
-    final awaitingApproval = purokLeaderStatus == 'Pending';
+    final awaitingApproval = purokLeaderStatus == 'pending';
     // Rejected by Purok Leader
-    final purokRejected = purokLeaderStatus == 'Rejected';
+    final purokRejected = purokLeaderStatus == 'rejected';
     // Approved and payment still needed
-    final needsPayment = purokLeaderStatus == 'Approved' && paymentStatus == 'unpaid';
+    final needsPayment = purokLeaderStatus == 'approved' && paymentStatus == 'unpaid';
     // Fully paid, normal document status flow
     final isPaid = paymentStatus == 'paid';
 
@@ -666,7 +699,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                               ? 'Pay Now'
                               : isPaid
                                   ? status
-                                  : purokLeaderStatus == 'Pending'
+                                  : purokLeaderStatus == 'pending'
                                       ? 'Awaiting Approval'
                                       : 'Purok Rejected',
                           style: TextStyle(
