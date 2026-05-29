@@ -212,7 +212,7 @@ router.get('/requests', async (req, res) => {
     const { purokLeaderStatus = 'all', page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const filter = {};
-    if (purokLeaderStatus !== 'all') filter.purokLeaderStatus = purokLeaderStatus;
+    if (purokLeaderStatus !== 'all') filter.purokLeaderStatus = { $regex: new RegExp(`^${purokLeaderStatus}$`, 'i') };
 
     const [requests, total] = await Promise.all([
       Request.find(filter)
