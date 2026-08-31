@@ -1,17 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const User = require('../models/User');
-const Otp = require('../models/Otp');
-const VerificationProfile = require('../models/VerificationProfile');
+const prisma = require('../lib/prisma');
+const { hashPassword, comparePassword } = require('../lib/password');
+const { isUuid } = require('../lib/ids');
 const { sendOtp, sendPasswordResetOtp } = require('../services/sms');
 const { sendOtpEmail } = require('../services/email');
 const { uploadAvatar } = require('../config/cloudinary');
 
 function generateToken(user) {
   return jwt.sign(
-    { id: user._id, username: user.username },
+    { id: user.id, username: user.username },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN }
   );
@@ -23,13 +22,13 @@ function generateOtpCode() {
 
 async function createAndSendOtp(userId, contactNumber, type) {
   // Invalidate any existing unused OTPs of same type
-  await Otp.deleteMany({ userId, type, used: false });
+  await prisma.otpCode.deleteMany({ where: { userId, type, used: false } });
 
   const code = generateOtpCode();
-  const hashed = await bcrypt.hash(code, 10);
+  const hashed = await hashPassword(code);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-  await Otp.create({ userId, code: hashed, type, expiresAt });
+  await prisma.otpCode.create({ data: { userId, code: hashed, type, expiresAt } });
 
   try {
     if (type === 'reset') {
@@ -50,23 +49,28 @@ const authMiddleware = require('../middleware/auth');
 
 router.get('/me', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    if (!isUuid(req.user.id)) return res.status(404).json({ message: 'User not found' });
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { verificationProfile: true },
+    });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const profile = await VerificationProfile.findOne({ user: user._id });
+    const profile = user.verificationProfile;
 
     res.json({
-      id: user._id,
+      id: user.id,
       username: user.username,
       fullName: profile?.fullName || '',
-      email: user.email,
+      email: user.email || '',
       contactNumber: user.contactNumber,
       isVerified: user.isVerified,
       avatar: user.avatar || '',
       accountStatus: profile?.status || 'draft',
       verificationStep: profile?.currentStep || 1,
       isPwd: profile?.isPwd || false,
-      age: profile?.age || null,
+      age: profile?.age ?? null,
       hasFreeProof: !!(profile?.freeProofDocument),
     });
   } catch (err) {
@@ -78,19 +82,27 @@ router.get('/me', authMiddleware, async (req, res) => {
 // ── GET /api/auth/profile  (requires token) ──────────────────────────────────
 router.get('/profile', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    if (!isUuid(req.user.id)) return res.status(404).json({ message: 'User not found' });
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { verificationProfile: true },
+    });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const profile = await VerificationProfile.findOne({ user: user._id });
+    const profile = user.verificationProfile;
 
     res.json({
       username: user.username,
-      email: user.email,
+      email: user.email || '',
       contactNumber: user.contactNumber,
       fullName: profile?.fullName || '',
-      age: profile?.age || null,
+      age: profile?.age ?? null,
       gender: profile?.gender || '',
       address: profile?.address || '',
+      // NOTE: the field on the profile is `yearsOfResidency`; this key has never
+      // matched it, so it has always returned ''. Preserved as-is to keep the
+      // response identical to the Mongo version — see the migration notes.
       yearsAtAddress: profile?.yearsAtAddress || '',
       motherName: profile?.motherName || '',
       fatherName: profile?.fatherName || '',
@@ -110,13 +122,13 @@ router.get('/profile', authMiddleware, async (req, res) => {
 router.put('/avatar', authMiddleware, uploadAvatar.single('avatar'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No image uploaded' });
-
-    const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (!isUuid(req.user.id)) return res.status(404).json({ message: 'User not found' });
 
     // Cloudinary returns the full secure URL in req.file.path
-    user.avatar = req.file.path;
-    await user.save();
+    const user = await prisma.user
+      .update({ where: { id: req.user.id }, data: { avatar: req.file.path } })
+      .catch(() => null);
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     res.json({ avatar: req.file.path, message: 'Avatar updated' });
   } catch (err) {
@@ -139,15 +151,18 @@ router.put('/change-password', authMiddleware, async (req, res) => {
     if (newPassword.length < 8) {
       return res.status(400).json({ message: 'Password must be at least 8 characters' });
     }
+    if (!isUuid(req.user.id)) return res.status(404).json({ message: 'User not found' });
 
-    const user = await User.findById(req.user.id);
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const match = await user.comparePassword(currentPassword);
+    const match = await comparePassword(currentPassword, user.password);
     if (!match) return res.status(401).json({ message: 'Current password is incorrect' });
 
-    user.password = newPassword;
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: await hashPassword(newPassword) },
+    });
 
     res.json({ message: 'Password changed successfully' });
   } catch (err) {
@@ -162,7 +177,7 @@ router.get('/check-username', async (req, res) => {
     const { username } = req.query;
     if (!username) return res.status(400).json({ message: 'Username required' });
 
-    const exists = await User.findOne({ username: username.trim() });
+    const exists = await prisma.user.findUnique({ where: { username: username.trim() } });
     res.json({ available: !exists });
   } catch (err) {
     console.error(err);
@@ -177,7 +192,7 @@ router.get('/check-contact', async (req, res) => {
     if (!contact) return res.status(400).json({ message: 'Contact required' });
 
     const digits = contact.replace(/\D/g, '');
-    const exists = await User.findOne({ contactNumber: digits });
+    const exists = await prisma.user.findUnique({ where: { contactNumber: digits } });
     res.json({ available: !exists });
   } catch (err) {
     console.error(err);
@@ -191,7 +206,7 @@ router.get('/check-email', async (req, res) => {
     const { email } = req.query;
     if (!email) return res.status(400).json({ message: 'Email required' });
 
-    const exists = await User.findOne({ email: email.trim().toLowerCase() });
+    const exists = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     res.json({ available: !exists });
   } catch (err) {
     console.error(err);
@@ -214,11 +229,15 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 8 characters' });
     }
 
+    const digits = contactNumber.replace(/\D/g, '');
+    // Empty email is stored as NULL, not '' — the unique index allows many NULLs.
+    const normalisedEmail = email ? email.toLowerCase().trim() : null;
+
     // Check for duplicates before creating
     const [existingUsername, existingContact, existingEmail] = await Promise.all([
-      User.findOne({ username }),
-      User.findOne({ contactNumber: contactNumber.replace(/\D/g, '') }),
-      email ? User.findOne({ email: email.toLowerCase() }) : Promise.resolve(null),
+      prisma.user.findUnique({ where: { username } }),
+      prisma.user.findUnique({ where: { contactNumber: digits } }),
+      normalisedEmail ? prisma.user.findUnique({ where: { email: normalisedEmail } }) : null,
     ]);
 
     if (existingUsername) {
@@ -231,31 +250,34 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ message: 'Email already registered' });
     }
 
-    const user = await User.create({
-      username,
-      contactNumber: contactNumber.replace(/\D/g, ''),
-      email: email ? email.toLowerCase() : '',
-      password,
-      isVerified: false,
+    const user = await prisma.user.create({
+      data: {
+        username,
+        contactNumber: digits,
+        email: normalisedEmail,
+        password: await hashPassword(password),
+        isVerified: false,
+      },
     });
 
-    await createAndSendOtp(user._id, user.contactNumber, 'register');
+    await createAndSendOtp(user.id, user.contactNumber, 'register');
 
     res.status(201).json({
       message: 'OTP sent to your contact number',
-      userId: user._id,
+      userId: user.id,
       requiresVerification: true,
     });
   } catch (err) {
-    // Catch MongoDB duplicate key errors as a safety net
-    if (err.code === 11000) {
-      const field = Object.keys(err.keyPattern || {})[0];
+    // Catch unique-constraint violations as a safety net (was Mongo's 11000)
+    if (err.code === 'P2002') {
+      const field = err.meta?.target?.[0] || (err.meta?.modelName && '');
       const messages = {
         username: 'Username already taken',
         contactNumber: 'Contact number already registered',
         email: 'Email already registered',
       };
-      return res.status(409).json({ message: messages[field] || 'Duplicate entry' });
+      const key = Object.keys(messages).find((k) => String(field).includes(k));
+      return res.status(409).json({ message: messages[key] || 'Duplicate entry' });
     }
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -270,36 +292,44 @@ router.post('/verify-otp', async (req, res) => {
     if (!userId || !code || !type) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
+    if (!isUuid(userId)) {
+      return res.status(400).json({ message: 'OTP expired or not found. Please request a new one.' });
+    }
 
-    const otpRecord = await Otp.findOne({
-      userId,
-      type,
-      used: false,
-      expiresAt: { $gt: new Date() },
-    }).sort({ createdAt: -1 });
+    const otpRecord = await prisma.otpCode.findFirst({
+      where: {
+        userId,
+        type,
+        used: false,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
     if (!otpRecord) {
       return res.status(400).json({ message: 'OTP expired or not found. Please request a new one.' });
     }
 
-    const match = await bcrypt.compare(code, otpRecord.code);
+    const match = await comparePassword(code, otpRecord.code);
     if (!match) {
       return res.status(400).json({ message: 'Invalid OTP. Please try again.' });
     }
 
     // Mark OTP as used
-    otpRecord.used = true;
-    await otpRecord.save();
+    await prisma.otpCode.update({ where: { id: otpRecord.id }, data: { used: true } });
 
     if (type === 'register') {
-      const user = await User.findByIdAndUpdate(userId, { isVerified: true }, { new: true });
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data: { isVerified: true },
+      });
       const token = generateToken(user);
       return res.json({
         token,
         user: {
-          id: user._id,
+          id: user.id,
           username: user.username,
-          email: user.email,
+          email: user.email || '',
           contactNumber: user.contactNumber,
           isVerified: true,
           accountStatus: 'draft',
@@ -328,12 +358,14 @@ router.post('/resend-otp', async (req, res) => {
   try {
     const { userId, type } = req.body;
 
-    const user = await User.findById(userId);
+    if (!isUuid(userId)) return res.status(404).json({ message: 'User not found' });
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    await createAndSendOtp(user._id, user.contactNumber, type);
+    await createAndSendOtp(user.id, user.contactNumber, type);
 
     res.json({ message: 'OTP resent successfully' });
   } catch (err) {
@@ -351,36 +383,38 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Username and password are required' });
     }
 
-    const user = await User.findOne({ username });
+    const user = await prisma.user.findUnique({
+      where: { username },
+      include: { verificationProfile: true },
+    });
     if (!user) {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
-    const match = await user.comparePassword(password);
+    const match = await comparePassword(password, user.password);
     if (!match) {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
     // Account not yet verified — resend OTP
     if (!user.isVerified) {
-      await createAndSendOtp(user._id, user.contactNumber, 'register');
+      await createAndSendOtp(user.id, user.contactNumber, 'register');
       return res.status(403).json({
         message: 'Account not verified. OTP has been resent.',
-        userId: user._id,
+        userId: user.id,
         requiresVerification: true,
       });
     }
 
     const token = generateToken(user);
-
-    const profile = await VerificationProfile.findOne({ user: user._id });
+    const profile = user.verificationProfile;
 
     res.json({
       token,
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
-        email: user.email,
+        email: user.email || '',
         contactNumber: user.contactNumber,
         isVerified: user.isVerified,
         avatar: user.avatar || '',
@@ -406,11 +440,13 @@ router.post('/forgot-password', async (req, res) => {
     const trimmed = identifier.trim();
 
     // Match by email or contact number
-    const user = await User.findOne({
-      $or: [
-        { email: trimmed },
-        { contactNumber: trimmed },
-      ],
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: trimmed },
+          { contactNumber: trimmed },
+        ],
+      },
     });
 
     if (!user) {
@@ -421,11 +457,13 @@ router.post('/forgot-password', async (req, res) => {
     const isEmail = trimmed.includes('@');
 
     // Generate and save OTP
-    await Otp.deleteMany({ userId: user._id, type: 'reset', used: false });
+    await prisma.otpCode.deleteMany({ where: { userId: user.id, type: 'reset', used: false } });
     const code = generateOtpCode();
-    const hashed = await bcrypt.hash(code, 10);
+    const hashed = await hashPassword(code);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-    await Otp.create({ userId: user._id, code: hashed, type: 'reset', expiresAt });
+    await prisma.otpCode.create({
+      data: { userId: user.id, code: hashed, type: 'reset', expiresAt },
+    });
 
     if (isEmail) {
       try {
@@ -449,7 +487,7 @@ router.post('/forgot-password', async (req, res) => {
       message: isEmail
           ? 'OTP sent to your email address'
           : 'OTP sent to your registered contact number',
-      userId: user._id,
+      userId: user.id,
     });
   } catch (err) {
     console.error(err);
@@ -482,14 +520,17 @@ router.post('/reset-password', async (req, res) => {
     if (decoded.purpose !== 'reset') {
       return res.status(401).json({ message: 'Invalid reset token' });
     }
+    if (!isUuid(decoded.id)) return res.status(404).json({ message: 'User not found' });
 
-    const user = await User.findById(decoded.id);
+    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    user.password = newPassword;
-    await user.save(); // pre-save hook hashes the password
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: await hashPassword(newPassword) },
+    });
 
     res.json({ message: 'Password reset successfully' });
   } catch (err) {

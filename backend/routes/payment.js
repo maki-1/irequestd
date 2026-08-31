@@ -3,11 +3,8 @@ const router = express.Router();
 const axios = require('axios');
 const crypto = require('crypto');
 const authMiddleware = require('../middleware/auth');
-const Request = require('../models/Request');
-const User = require('../models/User');
-const VerificationProfile = require('../models/VerificationProfile');
-const DocumentPrice = require('../models/DocumentPrice');
-const PurokClearanceFee = require('../models/PurokClearanceFee');
+const prisma = require('../lib/prisma');
+const { isUuid } = require('../lib/ids');
 
 const PAYMONGO_BASE = 'https://api.paymongo.com/v1';
 const FALLBACK_PRICE = parseInt(process.env.DOCUMENT_PRICE_CENTAVOS || '500', 10);
@@ -15,12 +12,12 @@ const FALLBACK_PRICE = parseInt(process.env.DOCUMENT_PRICE_CENTAVOS || '500', 10
 const PAYMENT_METHOD_TYPES = ['gcash', 'paymaya', 'grab_pay', 'card'];
 
 async function getPriceCentavos(documentType) {
-  const entry = await DocumentPrice.findOne({ documentType });
+  const entry = await prisma.documentPrice.findUnique({ where: { documentType } });
   return entry ? entry.pricecentavos : FALLBACK_PRICE;
 }
 
 async function getPurokFeeCentavos() {
-  const entry = await PurokClearanceFee.findOne({ purokName: 'default' });
+  const entry = await prisma.purokClearanceFee.findUnique({ where: { purokName: 'default' } });
   return entry ? entry.feecentavos : 0;
 }
 
@@ -52,11 +49,13 @@ router.post('/create-session', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'At least one requestId is required' });
     }
 
-    const requests = await Request.find({
-      _id: { $in: requestIds },
-      user: req.user.id,
-      purokLeaderStatus: 'approved',
-      paymentStatus: 'unpaid',
+    const requests = await prisma.request.findMany({
+      where: {
+        id: { in: requestIds.filter(isUuid) },
+        userId: req.user.id,
+        purokLeaderStatus: 'approved',
+        paymentStatus: 'unpaid',
+      },
     });
 
     if (requests.length === 0) {
@@ -122,15 +121,15 @@ router.post('/create-session', authMiddleware, async (req, res) => {
     const sessionId = sessionData.id;
     const checkoutUrl = sessionData.attributes.checkout_url;
 
-    await Promise.all(requests.map((r) => {
-      r.paymentSessionId = sessionId;
-      return r.save();
-    }));
+    await prisma.request.updateMany({
+      where: { id: { in: requests.map((r) => r.id) } },
+      data: { paymentSessionId: sessionId },
+    });
 
     res.status(201).json({
       checkoutUrl,
       sessionId,
-      requestIds: requests.map((r) => r._id),
+      requestIds: requests.map((r) => r.id),
     });
   } catch (err) {
     console.error('PayMongo create-session error:', err?.response?.data || err.message);
@@ -144,15 +143,14 @@ router.get('/status/:sessionId', authMiddleware, async (req, res) => {
   try {
     const { sessionId } = req.params;
 
-    const requests = await Request.find({
-      paymentSessionId: sessionId,
-      user: req.user.id,
+    const requests = await prisma.request.findMany({
+      where: { paymentSessionId: sessionId, userId: req.user.id },
     });
 
     if (!requests.length) return res.status(404).json({ message: 'Request not found' });
 
     if (requests.every((r) => r.paymentStatus === 'paid')) {
-      return res.json({ paid: true, requestIds: requests.map((r) => r._id) });
+      return res.json({ paid: true, requestIds: requests.map((r) => r.id) });
     }
 
     const pmRes = await axios.get(`${PAYMONGO_BASE}/checkout_sessions/${sessionId}`, {
@@ -169,12 +167,16 @@ router.get('/status/:sessionId', authMiddleware, async (req, res) => {
       const purokFeeCentavos = await getPurokFeeCentavos();
       await Promise.all(requests.map(async (r) => {
         const PRICE = await getPriceCentavos(r.documentType);
-        r.paymentStatus = 'paid';
-        r.amountPaid = (PRICE + purokFeeCentavos) / 100;
-        await r.save();
+        await prisma.request.update({
+          where: { id: r.id },
+          data: {
+            paymentStatus: 'paid',
+            amountPaid: (PRICE + purokFeeCentavos) / 100,
+          },
+        });
       }));
 
-      return res.json({ paid: true, requestIds: requests.map((r) => r._id) });
+      return res.json({ paid: true, requestIds: requests.map((r) => r.id) });
     }
 
     res.json({ paid: false });
@@ -216,12 +218,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     if (eventType === 'checkout_session.payment.paid') {
       const sessionId = body?.data?.attributes?.data?.id;
       if (sessionId) {
-        const req_ = await Request.findOne({ paymentSessionId: sessionId });
-        const PRICE = req_ ? await getPriceCentavos(req_.documentType) : FALLBACK_PRICE;
-        await Request.findOneAndUpdate(
-          { paymentSessionId: sessionId },
-          { paymentStatus: 'paid', amountPaid: PRICE / 100 }
-        );
+        const req_ = await prisma.request.findFirst({ where: { paymentSessionId: sessionId } });
+        if (req_) {
+          const PRICE = await getPriceCentavos(req_.documentType);
+          await prisma.request.update({
+            where: { id: req_.id },
+            data: { paymentStatus: 'paid', amountPaid: PRICE / 100 },
+          });
+        }
       }
     }
 
@@ -237,10 +241,16 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 // Includes purok clearance fee as a line item.
 router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
   try {
-    const request = await Request.findOne({
-      _id: req.params.requestId,
-      user: req.user.id,
-      paymentStatus: 'unpaid',
+    if (!isUuid(req.params.requestId)) {
+      return res.status(404).json({ message: 'Unpaid request not found' });
+    }
+
+    const request = await prisma.request.findFirst({
+      where: {
+        id: req.params.requestId,
+        userId: req.user.id,
+        paymentStatus: 'unpaid',
+      },
     });
     if (!request) {
       return res.status(404).json({ message: 'Unpaid request not found' });
@@ -250,8 +260,9 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
     }
 
     const priceCentavos    = await getPriceCentavos(request.documentType);
-    // Use the fee set at approval time (stored in PHP → convert to centavos)
-    const purokFeeCentavos = Math.round((request.purokClearanceFee || 0) * 100);
+    // Use the fee set at approval time (stored in PHP → convert to centavos).
+    // purokClearanceFee is a Prisma Decimal, so coerce before arithmetic.
+    const purokFeeCentavos = Math.round(Number(request.purokClearanceFee || 0) * 100);
 
     const lineItems = [
       {
@@ -303,13 +314,15 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
     const newSessionId = sessionData.id;
     const checkoutUrl  = sessionData.attributes.checkout_url;
 
-    request.paymentSessionId = newSessionId;
-    await request.save();
+    await prisma.request.update({
+      where: { id: request.id },
+      data: { paymentSessionId: newSessionId },
+    });
 
     res.json({
       checkoutUrl,
       sessionId: newSessionId,
-      requestId: request._id,
+      requestId: request.id,
       docPricePHP: priceCentavos / 100,
       purokFeePHP: purokFeeCentavos / 100,
       totalPHP: (priceCentavos + purokFeeCentavos) / 100,
@@ -323,13 +336,15 @@ router.post('/retry-session/:requestId', authMiddleware, async (req, res) => {
 // ── POST /api/payment/dev-skip/:requestId ────────────────────────────────────
 if (process.env.NODE_ENV !== 'production') {
   router.post('/dev-skip/:requestId', authMiddleware, async (req, res) => {
-    const request = await Request.findOneAndUpdate(
-      { _id: req.params.requestId, user: req.user.id },
-      { paymentStatus: 'paid', amountPaid: FALLBACK_PRICE / 100 },
-      { new: true }
-    );
-    if (!request) return res.status(404).json({ message: 'Request not found' });
-    res.json({ paid: true, requestId: request._id });
+    if (!isUuid(req.params.requestId)) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+    const { count } = await prisma.request.updateMany({
+      where: { id: req.params.requestId, userId: req.user.id },
+      data: { paymentStatus: 'paid', amountPaid: FALLBACK_PRICE / 100 },
+    });
+    if (count === 0) return res.status(404).json({ message: 'Request not found' });
+    res.json({ paid: true, requestId: req.params.requestId });
   });
 }
 

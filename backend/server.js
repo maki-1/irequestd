@@ -2,11 +2,15 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');
+const { startOtpCleanup } = require('./lib/otpCleanup');
 
 const app = express();
 
-// Connect to MongoDB
+// Connect to Postgres
 connectDB();
+
+// Postgres has no TTL index, so expired OTPs are swept on an interval.
+startOtpCleanup();
 
 // Middleware
 app.use(cors());

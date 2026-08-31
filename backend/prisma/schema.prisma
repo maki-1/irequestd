@@ -1,0 +1,479 @@
+// Postgres schema for iRequest Dologon — ported from the Mongoose models.
+//
+// Notes on the port:
+//  - Mongo ObjectIds become UUIDs. Every table keeps `legacyId` (the old
+//    24-char ObjectId hex) so the data-migration script can resolve relations,
+//    then it can be dropped once the cutover is done.
+//  - Mongoose string enums become real Postgres enums. Values are kept exactly
+//    as the app already sends them (note `purokLeaderStatus` is lowercase).
+//  - `User.email` was `default: ''` with a partial unique index. Here it is
+//    nullable instead: Postgres does not treat NULLs as equal, so a plain
+//    @unique gives the same "unique only when present" behaviour.
+//  - Money stays in the same units the app already uses — see each field.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma 7 moved the connection URL out of the schema — see prisma.config.js.
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+// Admin roles ("Barangay Captain" contains a space) and the payment/document
+// workflow states stay plain strings for the same reason documentType does.
+// The valid values are listed on each field.
+
+enum OtpType {
+  register
+  reset
+}
+
+// `documentType` and `deliveryMethod` stay plain strings rather than enums:
+// their values contain spaces ("Barangay Clearance"), so a Prisma enum would
+// need @map plus a key translation on every read and write. The route handlers
+// validate them instead, exactly as the Mongoose enums did.
+
+// `Request.status` is a plain string, not an enum: the Flutter backend uses
+// Pending/Processing/Ready/Rejected, while the admin portal additionally writes
+// 'Completed' and 'Claimed' when a document is released. Both write to the same
+// column, so it has to accept the union of the two vocabularies.
+
+// Request.paymentStatus is a plain string: the Flutter backend writes
+// unpaid/paid, and the admin portal's free-request flow writes 'free'.
+
+// Lowercase on purpose — matches what the Purok Leader app sends.
+enum PurokLeaderStatus {
+  pending
+  approved
+  rejected
+}
+
+// VerificationProfile.status is a plain string for the same reason the request
+// statuses are: the Flutter backend writes draft/pending/approved/rejected while
+// the admin portal also writes 'submitted', 'under review' and 'Pending'.
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(uuid()) @db.Uuid
+  legacyId      String?  @unique @db.VarChar(24)
+  username      String   @unique
+  contactNumber String   @unique
+  // Nullable, not '' — a plain unique index then allows many users without one.
+  email         String?  @unique
+  password      String
+  isVerified    Boolean  @default(false)
+  avatar        String   @default("")
+
+  // Written by the admin portal's resident flow, which keeps a single in-flight
+  // OTP on the user rather than using the otp_codes table the Flutter backend
+  // uses. Both mechanisms coexist against the same row.
+  otp        String?
+  otpExpires DateTime?
+  otpType    String?
+  // Password-reset handshake used by the portal's resident flow. No document
+  // carries these yet, so they are declared from its controller rather than
+  // discovered in the data.
+  resetToken        String?
+  resetTokenExpires DateTime?
+
+  // The portal also mirrors some verification state onto the user itself.
+  verificationStatus String?
+  verificationStep   Int?
+  isPwd      Boolean @default(false)
+  isSenior   Boolean @default(false)
+  isIndigent Boolean @default(false)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  otps                OtpCode[]
+  requests            Request[]
+  completedDocuments  CompletedDocument[]
+  payments            Payment[]
+  verificationProfile VerificationProfile?
+
+  @@map("users")
+}
+
+// Barangay staff. This table is owned by the admin portal (irq-admin), whose
+// models/User.js maps to the same `admins` collection — the shape below is
+// that model's, not the guess previously held in this backend.
+model Admin {
+  id            String   @id @default(uuid()) @db.Uuid
+  legacyId      String?  @unique @db.VarChar(24)
+  fullName      String
+  purok         String   @default("")
+  email         String   @unique
+  // Optional: OAuth accounts have no local password.
+  password      String?
+  // 'Secretary' | 'Collector' | 'Barangay Captain' | 'Purok Leader'
+  role          String   @default("Secretary")
+  oauthProvider String?
+  oauthId       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  auditTrails      AuditTrail[]
+  notifications    Notification[]
+  documents        Document[]
+  payments         Payment[]
+  purokApprovals   Request[]      @relation("PurokLeaderApprovals")
+  profileReviews   VerificationProfile[] @relation("ProfileReviews")
+
+  @@map("admins")
+}
+
+// Staff action log shown in the portal.
+model AuditTrail {
+  id       String  @id @default(uuid()) @db.Uuid
+  legacyId String? @unique @db.VarChar(24)
+  adminId  String? @db.Uuid
+  // Denormalised at write time so the entry survives the admin being deleted.
+  username String?
+  role     String?
+  action   String
+  details  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admin Admin? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([createdAt])
+  @@map("audit_trails")
+}
+
+// In-portal notifications for staff (Notification.user is req.user._id from
+// the admin middleware, so it points at an admin rather than a resident).
+model Notification {
+  id       String  @id @default(uuid()) @db.Uuid
+  legacyId String? @unique @db.VarChar(24)
+  adminId  String  @db.Uuid
+  message  String
+  status   String  @default("Unread") // 'Unread' | 'Read'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, status])
+  @@map("notifications")
+}
+
+// Payment records written by the portal.
+//
+// The Mongoose model declares `user` as ref 'User' (the admins collection), but
+// every existing row points at a resident. Meanwhile the staff-initiated
+// checkout route (guarded by admin auth) wrote the *admin* id into the same
+// field. Mongo accepted both; a foreign key cannot. The two are therefore split:
+// `userId` for the resident a payment is for, `adminId` for a staff-initiated
+// one. Exactly one is set.
+model Payment {
+  id           String  @id @default(uuid()) @db.Uuid
+  legacyId     String? @unique @db.VarChar(24)
+  userId       String? @db.Uuid
+  adminId      String? @db.Uuid
+  documentId   String? @db.Uuid
+  documentType String?
+  amount       Decimal @db.Decimal(10, 2)
+  provider     String  // 'paymongo' | 'stripe' | 'gcash' | 'manual'
+  sessionId    String?
+  paymentId    String?
+  status       String  @default("pending") // 'pending' | 'paid' | 'failed'
+  // Mongo held an array of Request ids. None of the existing rows still
+  // resolve to a live request, so the original ids are preserved here while
+  // `requests` carries the real relation going forward.
+  legacyRequestIds String[] @default([])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  admin    Admin?    @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  requests Request[] @relation("PaymentRequests")
+
+  @@index([userId])
+  @@index([adminId])
+  @@index([sessionId])
+  @@map("payments")
+}
+
+// Walk-in / staff-entered document requests, with a snapshot of the resident's
+// details at the time of the request.
+model Document {
+  id        String  @id @default(uuid()) @db.Uuid
+  legacyId  String? @unique @db.VarChar(24)
+  customId  String? @unique // e.g. DL-0001
+  createdById String? @db.Uuid
+
+  // Personal info (snapshot at time of request)
+  fullName        String
+  age             Int?
+  gender          String?
+  dateOfBirth     DateTime?
+  maritalStatus   String?
+  purok           String?
+  contactNumber   String?
+  email           String?
+  // 'Regular' | 'PWD' | 'Senior Citizen' | 'IP'
+  residentType    String   @default("Regular")
+  ipMember        Boolean  @default(false)
+  ethnicGroup     String?
+  registeredVoter Boolean  @default(false)
+
+  // Document details
+  documentType String   // same three types as Request.documentType
+  requestDate  DateTime @default(now())
+  purpose      String?
+
+  // 'Pending' | 'Processing' | 'Printing' | 'Completed' | 'Rejected'
+  status String @default("Pending")
+
+  // 'Pending' | 'Pending Verification' | 'Paid' | 'Exempt'
+  paymentStatus String  @default("Pending")
+  documentFee   Decimal @default(130) @db.Decimal(10, 2)
+  receiptFile   String?
+  orNumber      String?
+
+  signatureStatus String @default("")
+  sealStatus      String @default("")
+  residentPhoto   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy Admin?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  payments  Payment[]
+
+  @@index([status])
+  @@map("documents")
+}
+
+// Mongo auto-expired these with a TTL index. Postgres has no TTL, so expired
+// rows are removed by the cleanup helper in lib/otpCleanup.js.
+model OtpCode {
+  id        String   @id @default(uuid()) @db.Uuid
+  legacyId  String?  @unique @db.VarChar(24)
+  userId    String   @db.Uuid
+  code      String
+  type      OtpType
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([expiresAt])
+  @@map("otp_codes")
+}
+
+model Request {
+  id                String            @id @default(uuid()) @db.Uuid
+  legacyId          String?           @unique @db.VarChar(24)
+  userId            String            @db.Uuid
+  documentType      String
+  purpose           String
+  additionalDetails String            @default("")
+  // Defaulted because the portal's free-request flow does not set it.
+  deliveryMethod    String            @default("Pick up at Barangay Office")
+  // 'Pending' | 'Processing' | 'Ready' | 'Rejected' (Flutter backend)
+  // plus 'Completed' | 'Claimed' (admin portal, on release)
+  status            String            @default("Pending")
+  // 'unpaid' | 'paid', plus 'free' from the portal's free-request flow
+  paymentStatus     String            @default("unpaid")
+  paymentSessionId  String?
+  // The admin portal's model calls this paymentLinkId; both exist in the data.
+  paymentLinkId     String?
+  amountPaid        Decimal           @default(0) @db.Decimal(10, 2) // pesos (PHP)
+  // Was `unique, sparse` in Mongo. Generated from the `or_number_seq` sequence
+  // instead of the old Counter collection — see lib/orNumber.js.
+  orNumber          String?           @unique
+  freeDocumentProof String            @default("")
+  requestPhoto      String            @default("")
+  controlNumber     String            @default("")
+  purokLeaderStatus PurokLeaderStatus @default(pending)
+  // Two distinct timestamps exist in the data: the Flutter backend writes
+  // purokLeaderApprovedAt, the admin portal writes purokLeaderAt. Kept separate
+  // rather than merged so neither app's history is rewritten.
+  purokLeaderApprovedAt DateTime?
+  purokLeaderAt      DateTime?
+  purokLeaderBy      String?          @db.Uuid
+  purokLeaderRemarks String           @default("")
+  purokClearanceFee Decimal           @default(0) @db.Decimal(10, 2) // pesos (PHP), set at approval
+  claimCode         String?
+  yearsAtAddress    Int?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purokLeader        Admin?              @relation("PurokLeaderApprovals", fields: [purokLeaderBy], references: [id], onDelete: SetNull)
+  completedDocuments CompletedDocument[]
+  payments           Payment[]           @relation("PaymentRequests")
+
+  @@index([userId])
+  @@index([status])
+  @@index([paymentSessionId])
+  @@map("requests")
+}
+
+model CompletedDocument {
+  id           String       @id @default(uuid()) @db.Uuid
+  legacyId     String?      @unique @db.VarChar(24)
+  userId       String?      @db.Uuid
+  requestId    String?      @db.Uuid
+  documentType String?
+  claimCode    String?
+  // Deliberately a plain string, not an enum: the admin portal has historically
+  // written 'Pending', 'pending', 'Claimed', 'complete' and 'completed' here,
+  // and routes/requests.js matches them case-insensitively. An enum would
+  // reject the existing rows on import.
+  claimStatus  String?
+  completedAt  DateTime?
+  // Snapshot of the resident's details at completion time, written by the
+  // admin portal. These were previously swept into `metadata`.
+  purpose      String?
+  fullName     String?
+  age          Int?
+  purok        String?
+  address      String?
+  // The Mongoose schema was `strict: false`, so the admin portal could attach
+  // arbitrary extra fields. Those land here instead of becoming columns.
+  metadata     Json?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  request Request? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([claimCode])
+  @@map("completed_documents")
+}
+
+// Direct port of the Mongo `Counter` collection that backed OR-number
+// generation. Kept as a table (rather than a Postgres sequence) because the
+// count resets each year: the id is `orNumber-<year>`. See lib/orNumber.js.
+model Counter {
+  id  String @id
+  seq Int    @default(0)
+
+  @@map("counters")
+}
+
+model DocumentPrice {
+  id            String   @id @default(uuid()) @db.Uuid
+  legacyId      String?  @unique @db.VarChar(24)
+  documentType  String   @unique
+  pricecentavos Int
+  description   String   @default("")
+  updatedBy     String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("document_prices")
+}
+
+model PurokClearanceFee {
+  id             String   @id @default(uuid()) @db.Uuid
+  legacyId       String?  @unique @db.VarChar(24)
+  purokName      String   @unique
+  feecentavos    Int      @default(0)
+  treasurerName  String   @default("")
+  purokPresident String   @default("")
+  description    String   @default("")
+  updatedBy      String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("purok_clearance_fee")
+}
+
+model VerificationProfile {
+  id       String  @id @default(uuid()) @db.Uuid
+  legacyId String? @unique @db.VarChar(24)
+  userId   String  @unique @db.Uuid
+
+  // Step 1 — Demographic
+  fullName         String    @default("")
+  address          String    @default("")
+  birthday         DateTime?
+  age              Int?
+  gender           String    @default("")
+  indigent         String    @default("")
+  // Two names for the same thing: the Flutter backend writes yearsOfResidency,
+  // the admin portal writes yearsAtAddress (and holds it as a number). Almost
+  // all existing rows use yearsAtAddress, so both are kept rather than merged.
+  yearsOfResidency String    @default("")
+  yearsAtAddress   Int?
+  motherName       String    @default("")
+  fatherName       String    @default("")
+  isPwd            Boolean   @default(false)
+  isSenior         Boolean   @default(false)
+  isIndigent       Boolean   @default(false)
+  civilStatus      String?
+  nationality      String?
+  occupation       String?
+  contactNumber    String?
+  email            String?
+  // Cloudinary URL: PSA / Senior Citizen ID / PWD ID
+  freeProofDocument String   @default("")
+  pwdProof          String?
+  indigentProof     String?
+  // Legacy upload fields still declared by the admin portal's model
+  governmentId      String?
+  selfieWithId      String?
+  proofOfResidency  String?
+
+  // Step 2 — Education
+  educationLevel       String @default("")
+  school               String @default("")
+  yearGraduated        String @default("")
+  course               String @default("")
+  educationCertificate String @default("")
+
+  // Step 3 — ID + Face (all Cloudinary URLs)
+  idType    String @default("") // 'primary' | 'secondary'
+  idName    String @default("")
+  idFront   String @default("")
+  idBack    String @default("") // empty for single-page IDs
+  facePhoto String @default("")
+  // Second ID (secondary type only)
+  idName2  String @default("")
+  idFront2 String @default("")
+  idBack2  String @default("")
+
+  // Secondary-ID fields under the admin portal's naming
+  secondaryIdType   String?
+  secondaryIdName   String?
+  secondaryIdFront  String?
+  secondaryId2Type  String?
+  secondaryId2Name  String?
+  secondaryId2Front String?
+
+  currentStep     Int      @default(1) // 1, 2, 3
+  // 'draft' | 'pending' | 'approved' | 'rejected' (Flutter backend)
+  // plus 'submitted' | 'under review' | 'Pending' (admin portal)
+  status          String   @default("draft")
+  rejectionReason String   @default("")
+  // The portal's equivalent of rejectionReason, shown as reviewer remarks.
+  remarks         String   @default("")
+  submittedAt     DateTime?
+  reviewedAt      DateTime?
+  reviewedById    String?  @db.Uuid
+  // Groq/Llama and Azure Face results, written during step 3. Kept as JSON
+  // rather than columns because the shape is owned by the AI utilities.
+  aiVerification  Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy Admin? @relation("ProfileReviews", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@map("verification_profiles")
+}

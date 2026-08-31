@@ -1,0 +1,17 @@
+# Never bake secrets into the image — Koyeb supplies these as service env vars.
+.env
+.env.*
+
+node_modules
+npm-debug.log*
+
+.git
+.gitignore
+Dockerfile
+.dockerignore
+
+# Legacy local upload dir; all uploads stream to Cloudinary.
+uploads
+
+# Dead Mongoose schemas, kept only until the migration scripts are retired.
+models

@@ -1,18 +1,21 @@
 const express = require('express');
 const router  = express.Router();
 const jwt     = require('jsonwebtoken');
-const Admin   = require('../models/Admin');
-const User    = require('../models/User');
-const VerificationProfile = require('../models/VerificationProfile');
-const Request = require('../models/Request');
-const DocumentPrice = require('../models/DocumentPrice');
-const PurokClearanceFee = require('../models/PurokClearanceFee');
+const prisma  = require('../lib/prisma');
+const { comparePassword, hashPassword } = require('../lib/password');
+const { toApi } = require('../lib/serialize');
+const { isUuid } = require('../lib/ids');
 
 const DEFAULT_PRICES = [
   { documentType: 'Barangay Clearance',       pricecentavos: 10000, description: 'Standard processing fee for barangay clearance (₱100.00)' },
   { documentType: 'Certificate of Residency', pricecentavos:  5000, description: 'Processing fee for proof of address certificate (₱50.00)' },
   { documentType: 'Certificate of Indigency', pricecentavos:     0, description: 'Free — financial aid certificate (₱0.00)' },
 ];
+
+// The user-facing fields the admin portal reads off a profile's owner.
+const USER_SUMMARY = {
+  select: { id: true, username: true, email: true, contactNumber: true, isVerified: true, createdAt: true },
+};
 
 // ── Admin auth middleware ─────────────────────────────────────────────────────
 function adminAuth(req, res, next) {
@@ -30,18 +33,28 @@ function adminAuth(req, res, next) {
 }
 
 // ── POST /api/admin/setup  (creates first admin; disabled once one exists) ────
+// The `admins` table is shared with the admin portal, which identifies staff by
+// email — there is no `username` column. These endpoints were written against a
+// schema that never matched the real data; they now use the portal's shape.
 router.post('/setup', async (req, res) => {
   try {
-    const count = await Admin.countDocuments();
+    const count = await prisma.admin.count();
     if (count > 0)
       return res.status(403).json({ message: 'Setup already completed' });
 
-    const { username, password, name } = req.body;
-    if (!username || !password || !name)
-      return res.status(400).json({ message: 'username, password and name are required' });
+    const { email, password, fullName } = req.body;
+    if (!email || !password || !fullName)
+      return res.status(400).json({ message: 'email, password and fullName are required' });
 
-    const admin = await Admin.create({ username, password, name, role: 'superadmin' });
-    res.status(201).json({ message: 'Admin created', id: admin._id });
+    const admin = await prisma.admin.create({
+      data: {
+        email: String(email).toLowerCase().trim(),
+        password: await hashPassword(password),
+        fullName,
+        role: 'Secretary',
+      },
+    });
+    res.status(201).json({ message: 'Admin created', id: admin.id });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -51,19 +64,25 @@ router.post('/setup', async (req, res) => {
 // ── POST /api/admin/login ─────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    const admin = await Admin.findOne({ username });
-    if (!admin) return res.status(401).json({ message: 'Invalid credentials' });
+    const { email, password } = req.body;
+    if (!email || !password)
+      return res.status(400).json({ message: 'Invalid credentials' });
 
-    const ok = await admin.comparePassword(password);
+    const admin = await prisma.admin.findUnique({
+      where: { email: String(email).toLowerCase().trim() },
+    });
+    // OAuth-only accounts have no local password to compare against.
+    if (!admin || !admin.password) return res.status(401).json({ message: 'Invalid credentials' });
+
+    const ok = await comparePassword(password, admin.password);
     if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
 
     const token = jwt.sign(
-      { id: admin._id, username: admin.username, name: admin.name, role: admin.role, isAdmin: true },
+      { id: admin.id, email: admin.email, name: admin.fullName, role: admin.role, isAdmin: true },
       process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
-    res.json({ token, name: admin.name, role: admin.role });
+    res.json({ token, name: admin.fullName, role: admin.role });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -74,11 +93,12 @@ router.post('/login', async (req, res) => {
 // Public — Flutter app reads prices to display to users.
 router.get('/prices', async (req, res) => {
   try {
-    let prices = await DocumentPrice.find().sort('documentType');
+    let prices = await prisma.documentPrice.findMany({ orderBy: { documentType: 'asc' } });
     if (prices.length === 0) {
-      prices = await DocumentPrice.insertMany(DEFAULT_PRICES);
+      await prisma.documentPrice.createMany({ data: DEFAULT_PRICES, skipDuplicates: true });
+      prices = await prisma.documentPrice.findMany({ orderBy: { documentType: 'asc' } });
     }
-    res.json(prices);
+    res.json(toApi(prices));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -92,15 +112,16 @@ router.use(adminAuth);
 router.get('/stats', async (req, res) => {
   try {
     const [total, pending, approved, rejected, draft, totalRequests] = await Promise.all([
-      VerificationProfile.countDocuments(),
-      VerificationProfile.countDocuments({ status: 'pending' }),
-      VerificationProfile.countDocuments({ status: 'approved' }),
-      VerificationProfile.countDocuments({ status: 'rejected' }),
-      VerificationProfile.countDocuments({ status: 'draft' }),
-      Request.countDocuments(),
+      prisma.verificationProfile.count(),
+      prisma.verificationProfile.count({ where: { status: 'pending' } }),
+      prisma.verificationProfile.count({ where: { status: 'approved' } }),
+      prisma.verificationProfile.count({ where: { status: 'rejected' } }),
+      prisma.verificationProfile.count({ where: { status: 'draft' } }),
+      prisma.request.count(),
     ]);
     res.json({ total, pending, approved, rejected, draft, totalRequests });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -112,29 +133,38 @@ router.get('/applications', async (req, res) => {
     const { status = 'all', search = '', page = 1, limit = 15 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const filter = {};
-    if (status !== 'all') filter.status = status;
+    const where = {};
+    if (status !== 'all') where.status = status;
 
-    let profiles = await VerificationProfile.find(filter)
-      .populate('user', 'username email contactNumber isVerified createdAt')
-      .sort({ updatedAt: -1 })
-      .lean();
-
-    // Client-side search on populated fields
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      profiles = profiles.filter(p =>
-        p.fullName?.toLowerCase().includes(q) ||
-        p.user?.username?.toLowerCase().includes(q) ||
-        p.user?.contactNumber?.includes(q) ||
-        p.user?.email?.toLowerCase().includes(q)
-      );
+    // The search spans the profile and its user, so it is pushed into the
+    // query rather than filtering in JS as the Mongo version did.
+    const q = search.trim();
+    if (q) {
+      where.OR = [
+        { fullName: { contains: q, mode: 'insensitive' } },
+        { user: { username: { contains: q, mode: 'insensitive' } } },
+        { user: { contactNumber: { contains: q } } },
+        { user: { email: { contains: q, mode: 'insensitive' } } },
+      ];
     }
 
-    const total = profiles.length;
-    const paginated = profiles.slice(skip, skip + parseInt(limit));
+    const [profiles, total] = await Promise.all([
+      prisma.verificationProfile.findMany({
+        where,
+        include: { user: USER_SUMMARY },
+        orderBy: { updatedAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.verificationProfile.count({ where }),
+    ]);
 
-    res.json({ applications: paginated, total, page: parseInt(page), limit: parseInt(limit) });
+    res.json({
+      applications: toApi(profiles),
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -144,12 +174,16 @@ router.get('/applications', async (req, res) => {
 // ── GET /api/admin/applications/:id ──────────────────────────────────────────
 router.get('/applications/:id', async (req, res) => {
   try {
-    const profile = await VerificationProfile.findById(req.params.id)
-      .populate('user', 'username email contactNumber isVerified createdAt')
-      .lean();
+    if (!isUuid(req.params.id)) return res.status(404).json({ message: 'Not found' });
+
+    const profile = await prisma.verificationProfile.findUnique({
+      where: { id: req.params.id },
+      include: { user: USER_SUMMARY },
+    });
     if (!profile) return res.status(404).json({ message: 'Not found' });
-    res.json(profile);
+    res.json(toApi(profile));
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -157,14 +191,16 @@ router.get('/applications/:id', async (req, res) => {
 // ── PUT /api/admin/applications/:id/approve ───────────────────────────────────
 router.put('/applications/:id/approve', async (req, res) => {
   try {
-    const profile = await VerificationProfile.findByIdAndUpdate(
-      req.params.id,
-      { status: 'approved', rejectionReason: '', reviewedAt: new Date() },
-      { new: true }
-    );
-    if (!profile) return res.status(404).json({ message: 'Not found' });
+    if (!isUuid(req.params.id)) return res.status(404).json({ message: 'Not found' });
+
+    const { count } = await prisma.verificationProfile.updateMany({
+      where: { id: req.params.id },
+      data: { status: 'approved', rejectionReason: '', reviewedAt: new Date() },
+    });
+    if (count === 0) return res.status(404).json({ message: 'Not found' });
     res.json({ message: 'Application approved', status: 'approved' });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -172,15 +208,17 @@ router.put('/applications/:id/approve', async (req, res) => {
 // ── PUT /api/admin/applications/:id/reject ────────────────────────────────────
 router.put('/applications/:id/reject', async (req, res) => {
   try {
+    if (!isUuid(req.params.id)) return res.status(404).json({ message: 'Not found' });
+
     const { reason = '' } = req.body;
-    const profile = await VerificationProfile.findByIdAndUpdate(
-      req.params.id,
-      { status: 'rejected', rejectionReason: reason, reviewedAt: new Date() },
-      { new: true }
-    );
-    if (!profile) return res.status(404).json({ message: 'Not found' });
+    const { count } = await prisma.verificationProfile.updateMany({
+      where: { id: req.params.id },
+      data: { status: 'rejected', rejectionReason: reason, reviewedAt: new Date() },
+    });
+    if (count === 0) return res.status(404).json({ message: 'Not found' });
     res.json({ message: 'Application rejected', status: 'rejected' });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -192,15 +230,16 @@ router.put('/requests/:id/status', async (req, res) => {
     const allowed = ['Pending', 'Processing', 'Ready', 'Rejected'];
     if (!allowed.includes(status))
       return res.status(400).json({ message: 'Invalid status' });
+    if (!isUuid(req.params.id)) return res.status(404).json({ message: 'Not found' });
 
-    const request = await Request.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-    if (!request) return res.status(404).json({ message: 'Not found' });
-    res.json({ message: 'Status updated', status: request.status });
+    const { count } = await prisma.request.updateMany({
+      where: { id: req.params.id },
+      data: { status },
+    });
+    if (count === 0) return res.status(404).json({ message: 'Not found' });
+    res.json({ message: 'Status updated', status });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -211,20 +250,21 @@ router.get('/requests', async (req, res) => {
   try {
     const { purokLeaderStatus = 'all', page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const filter = {};
-    if (purokLeaderStatus !== 'all') filter.purokLeaderStatus = purokLeaderStatus.toLowerCase();
+    const where = {};
+    if (purokLeaderStatus !== 'all') where.purokLeaderStatus = purokLeaderStatus.toLowerCase();
 
     const [requests, total] = await Promise.all([
-      Request.find(filter)
-        .populate('user', 'username contactNumber email')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
-      Request.countDocuments(filter),
+      prisma.request.findMany({
+        where,
+        include: { user: { select: { id: true, username: true, contactNumber: true, email: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: parseInt(limit),
+      }),
+      prisma.request.count({ where }),
     ]);
 
-    res.json({ requests, total, page: parseInt(page), limit: parseInt(limit) });
+    res.json({ requests: toApi(requests), total, page: parseInt(page), limit: parseInt(limit) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -234,12 +274,13 @@ router.get('/requests', async (req, res) => {
 // ── PUT /api/admin/requests/:id/purok-approve ─────────────────────────────────
 router.put('/requests/:id/purok-approve', async (req, res) => {
   try {
-    const request = await Request.findByIdAndUpdate(
-      req.params.id,
-      { purokLeaderStatus: 'approved', purokLeaderApprovedAt: new Date() },
-      { new: true }
-    );
-    if (!request) return res.status(404).json({ message: 'Request not found' });
+    if (!isUuid(req.params.id)) return res.status(404).json({ message: 'Request not found' });
+
+    const { count } = await prisma.request.updateMany({
+      where: { id: req.params.id },
+      data: { purokLeaderStatus: 'approved', purokLeaderApprovedAt: new Date() },
+    });
+    if (count === 0) return res.status(404).json({ message: 'Request not found' });
     res.json({ message: 'Purok clearance approved', purokLeaderStatus: 'approved' });
   } catch (err) {
     console.error(err);
@@ -250,12 +291,13 @@ router.put('/requests/:id/purok-approve', async (req, res) => {
 // ── PUT /api/admin/requests/:id/purok-reject ──────────────────────────────────
 router.put('/requests/:id/purok-reject', async (req, res) => {
   try {
-    const request = await Request.findByIdAndUpdate(
-      req.params.id,
-      { purokLeaderStatus: 'rejected' },
-      { new: true }
-    );
-    if (!request) return res.status(404).json({ message: 'Request not found' });
+    if (!isUuid(req.params.id)) return res.status(404).json({ message: 'Request not found' });
+
+    const { count } = await prisma.request.updateMany({
+      where: { id: req.params.id },
+      data: { purokLeaderStatus: 'rejected' },
+    });
+    if (count === 0) return res.status(404).json({ message: 'Request not found' });
     res.json({ message: 'Purok clearance rejected', purokLeaderStatus: 'rejected' });
   } catch (err) {
     console.error(err);
@@ -266,7 +308,7 @@ router.put('/requests/:id/purok-reject', async (req, res) => {
 // ── GET /api/admin/purok-clearance-fee ────────────────────────────────────────
 router.get('/purok-clearance-fee', async (req, res) => {
   try {
-    const fee = await PurokClearanceFee.findOne({ purokName: 'default' });
+    const fee = await prisma.purokClearanceFee.findUnique({ where: { purokName: 'default' } });
     res.json({
       feecentavos: fee?.feecentavos ?? 0,
       feePHP: (fee?.feecentavos ?? 0) / 100,
@@ -287,18 +329,19 @@ router.put('/purok-clearance-fee', async (req, res) => {
     if (feecentavos === undefined || typeof feecentavos !== 'number' || feecentavos < 0) {
       return res.status(400).json({ message: 'feecentavos must be a non-negative number' });
     }
-    const fee = await PurokClearanceFee.findOneAndUpdate(
-      { purokName: 'default' },
-      {
-        feecentavos,
-        treasurerName: treasurerName ?? '',
-        purokPresident: purokPresident ?? '',
-        description: description ?? '',
-        updatedBy: req.admin?.username ?? 'admin',
-      },
-      { new: true, upsert: true }
-    );
-    res.json(fee);
+    const data = {
+      feecentavos,
+      treasurerName: treasurerName ?? '',
+      purokPresident: purokPresident ?? '',
+      description: description ?? '',
+      updatedBy: req.admin?.email ?? req.admin?.name ?? 'admin',
+    };
+    const fee = await prisma.purokClearanceFee.upsert({
+      where: { purokName: 'default' },
+      create: { purokName: 'default', ...data },
+      update: data,
+    });
+    res.json(toApi(fee));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -314,18 +357,19 @@ router.put('/prices/:documentType', adminAuth, async (req, res) => {
       return res.status(400).json({ message: 'pricecentavos must be a non-negative number' });
     }
 
-    const docType = decodeURIComponent(req.params.documentType);
-    const price = await DocumentPrice.findOneAndUpdate(
-      { documentType: docType },
-      {
-        pricecentavos,
-        description: description ?? '',
-        updatedBy: req.admin?.username ?? 'admin',
-      },
-      { new: true, upsert: true }
-    );
+    const documentType = decodeURIComponent(req.params.documentType);
+    const data = {
+      pricecentavos,
+      description: description ?? '',
+      updatedBy: req.admin?.email ?? req.admin?.name ?? 'admin',
+    };
+    const price = await prisma.documentPrice.upsert({
+      where: { documentType },
+      create: { documentType, ...data },
+      update: data,
+    });
 
-    res.json(price);
+    res.json(toApi(price));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

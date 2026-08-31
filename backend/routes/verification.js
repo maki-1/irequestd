@@ -1,15 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
-const VerificationProfile = require('../models/VerificationProfile');
+const prisma = require('../lib/prisma');
 const { uploadIdDoc, uploadFace, uploadFreeProof } = require('../config/cloudinary');
 
 router.use(authMiddleware);
 
+// Mongo's findOneAndUpdate with { new: true } returned null when no document
+// matched; Prisma's update throws P2025 instead. This keeps the old shape so
+// the "complete the previous step first" branches still work.
+const updateProfile = (userId, data) =>
+  prisma.verificationProfile.update({ where: { userId }, data }).catch((e) => {
+    if (e.code === 'P2025') return null;
+    throw e;
+  });
+
 // ── GET /api/verification/status ─────────────────────────────────────────────
 router.get('/status', async (req, res) => {
   try {
-    const profile = await VerificationProfile.findOne({ user: req.user.id });
+    const profile = await prisma.verificationProfile.findUnique({
+      where: { userId: req.user.id },
+    });
     if (!profile) return res.json({ status: null, currentStep: 1 });
     res.json({
       status: profile.status,
@@ -46,7 +57,6 @@ router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, r
     }
 
     const updateData = {
-      user: req.user.id,
       fullName: fullName.trim(),
       address: address.trim(),
       birthday: parsedBirthday,
@@ -62,11 +72,11 @@ router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, r
 
     if (req.file) updateData.freeProofDocument = req.file.path;
 
-    const profile = await VerificationProfile.findOneAndUpdate(
-      { user: req.user.id },
-      updateData,
-      { upsert: true, new: true }
-    );
+    const profile = await prisma.verificationProfile.upsert({
+      where: { userId: req.user.id },
+      create: { userId: req.user.id, ...updateData },
+      update: updateData,
+    });
 
     res.json({ message: 'Step 1 saved', currentStep: profile.currentStep });
   } catch (err) {
@@ -97,11 +107,7 @@ router.post('/step2', (req, res) => {
 
       if (req.file) updateData.educationCertificate = req.file.path;
 
-      const profile = await VerificationProfile.findOneAndUpdate(
-        { user: req.user.id },
-        updateData,
-        { new: true }
-      );
+      const profile = await updateProfile(req.user.id, updateData);
 
       if (!profile) return res.status(400).json({ message: 'Complete Step 1 first' });
 
@@ -167,11 +173,7 @@ router.post('/step3', (req, res) => {
       if (files.idFront2) updateFields.idFront2 = files.idFront2[0].path;
       if (files.idBack2)  updateFields.idBack2  = files.idBack2[0].path;
 
-      const profile = await VerificationProfile.findOneAndUpdate(
-        { user: req.user.id },
-        updateFields,
-        { new: true }
-      );
+      const profile = await updateProfile(req.user.id, updateFields);
 
       if (!profile) return res.status(400).json({ message: 'Complete previous steps first' });
 

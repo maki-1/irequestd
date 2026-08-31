@@ -31,7 +31,10 @@ class LlamaIdResult {
 
 class LlamaService {
   static const _endpoint = 'https://api.groq.com/openai/v1/chat/completions';
-  static const _model = 'meta-llama/llama-4-scout-17b-16e-instruct';
+  // Vision model on Groq. Qwen3.8-27B is a reasoning model, so every request
+  // below sends `reasoning_format: 'hidden'` (keeps message.content as clean
+  // JSON) and a generous token budget (reasoning tokens count against it).
+  static const _model = 'qwen/qwen3.8-27b';
 
   static const _idTypes = [
     'Philippine National ID',
@@ -99,10 +102,11 @@ class LlamaService {
             },
           ],
           'temperature': 0,
-          'max_tokens': 50,
+          'max_tokens': 1024,
+          'reasoning_format': 'hidden',
           'response_format': {'type': 'json_object'},
         }),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(const Duration(seconds: 45));
 
       if (response.statusCode != 200) {
         debugPrint('[LLaMA face] API error ${response.statusCode}: ${response.body}');
@@ -227,10 +231,11 @@ Respond in JSON only — no explanation:
             },
           ],
           'temperature': 0,
-          'max_completion_tokens': 150,
+          'max_completion_tokens': 1024,
+          'reasoning_format': 'hidden',
           'response_format': {'type': 'json_object'},
         }),
-      ).timeout(const Duration(seconds: 25));
+      ).timeout(const Duration(seconds: 45));
 
       if (response.statusCode != 200) {
         debugPrint('[LLaMA proof] API error ${response.statusCode}: ${response.body}');
@@ -332,10 +337,11 @@ Rules:
             },
           ],
           'temperature': 0,
-          'max_tokens': 150,
+          'max_tokens': 1024,
+          'reasoning_format': 'hidden',
           'response_format': {'type': 'json_object'},
         }),
-      ).timeout(const Duration(seconds: 25));
+      ).timeout(const Duration(seconds: 45));
 
       if (response.statusCode != 200) return LlamaIdResult.failed;
 

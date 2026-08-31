@@ -1,11 +1,10 @@
 /**
- * Seed script — inserts residents directly into MongoDB as fully-verified accounts.
+ * Seed script — inserts residents directly into Postgres as fully-verified accounts.
  * Run: node seed_users.js
  */
 require('dotenv').config();
-const mongoose = require('mongoose');
-const User = require('./models/User');
-const VerificationProfile = require('./models/VerificationProfile');
+const prisma = require('./lib/prisma');
+const { hashPassword } = require('./lib/password');
 
 const DEFAULT_PASSWORD = 'Dologon@2025';
 
@@ -76,8 +75,8 @@ const residents = [
 ];
 
 async function seed() {
-  await mongoose.connect(process.env.MONGO_URI);
-  console.log('Connected to MongoDB\n');
+  await prisma.$queryRaw`SELECT 1`;
+  console.log('Connected to Postgres\n');
 
   const usernameCount = {};
   const credentials = [];
@@ -93,31 +92,35 @@ async function seed() {
     const contactNumber = `091${String(i + 1).padStart(8, '0')}`;
 
     try {
-      const user = await User.create({
-        username,
-        contactNumber,
-        email: '',
-        password: DEFAULT_PASSWORD, // pre-save hook hashes this
-        isVerified: true,
-      });
-
-      await VerificationProfile.create({
-        user:           user._id,
-        fullName:       naturalName(r.raw),
-        address:        `${r.purok}, Brgy. Dologon, Maramag, Bukidnon`,
-        age:            r.age,
-        gender:         r.gender,
-        yearsAtAddress: r.years,
-        motherName:     r.mother,
-        fatherName:     r.father,
-        isPwd:          r.pwd,
-        educationLevel: r.edu,
-        school:         r.school,
-        yearGraduated:  r.grad,
-        currentStep:    4,
-        status:         'approved',
-        submittedAt:    now,
-        reviewedAt:     now,
+      await prisma.user.create({
+        data: {
+          username,
+          contactNumber,
+          email: null, // Mongo used ''; Postgres uses NULL so the unique index allows many
+          password: await hashPassword(DEFAULT_PASSWORD),
+          isVerified: true,
+          verificationProfile: {
+            create: {
+              fullName:       naturalName(r.raw),
+              address:        `${r.purok}, Brgy. Dologon, Maramag, Bukidnon`,
+              age:            r.age,
+              gender:         r.gender,
+              // was `yearsAtAddress`, which is not a field on the profile —
+              // the value was silently dropped. Mapped to the real column.
+              yearsOfResidency: r.years,
+              motherName:     r.mother,
+              fatherName:     r.father,
+              isPwd:          r.pwd,
+              educationLevel: r.edu,
+              school:         r.school,
+              yearGraduated:  r.grad,
+              currentStep:    4,
+              status:         'approved',
+              submittedAt:    now,
+              reviewedAt:     now,
+            },
+          },
+        },
       });
 
       credentials.push({ name: naturalName(r.raw), username, password: DEFAULT_PASSWORD });
@@ -136,7 +139,7 @@ async function seed() {
   console.log('=================================\n');
   console.log(`Inserted ${credentials.length} / ${residents.length} accounts.`);
 
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 }
 
 seed().catch(err => { console.error(err); process.exit(1); });
