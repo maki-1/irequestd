@@ -10,9 +10,9 @@ class ForgotPasswordScreen extends StatefulWidget {
 }
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
+  static const Color _green = Color(0xFF0B3D2E);
   static const Color _gold = Color(0xFFFFD700);
-  static const Color _limeGreen = Color(0xFF4CFF4C);
+  static const Color _limeGreen = Color(0xFF2FA355);
 
   final _identifierController = TextEditingController();
   bool _isLoading = false;
@@ -42,7 +42,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('If that account exists, an OTP has been sent.'),
-              backgroundColor: Color(0xFF1A6B1A),
+              backgroundColor: Color(0xFF0B3D2E),
               behavior: SnackBarBehavior.floating,
             ),
           );

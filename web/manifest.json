@@ -1,11 +1,11 @@
 {
-    "name": "irequestd",
-    "short_name": "irequestd",
+    "name": "iRequest Dologon",
+    "short_name": "iRequestD",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#EDF4EC",
+    "theme_color": "#0B3D2E",
+    "description": "Barangay Dologon document request portal.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

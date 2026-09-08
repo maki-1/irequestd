@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const authMiddleware = require('../middleware/auth');
 const prisma = require('../lib/prisma');
 const { isUuid } = require('../lib/ids');
+const { purokFeeCentavosForUser } = require('../lib/purokFee');
 
 const PAYMONGO_BASE = 'https://api.paymongo.com/v1';
 const FALLBACK_PRICE = parseInt(process.env.DOCUMENT_PRICE_CENTAVOS || '500', 10);
@@ -16,15 +17,16 @@ async function getPriceCentavos(documentType) {
   return entry ? entry.pricecentavos : FALLBACK_PRICE;
 }
 
-async function getPurokFeeCentavos() {
-  const entry = await prisma.purokClearanceFee.findUnique({ where: { purokName: 'default' } });
-  return entry ? entry.feecentavos : 0;
-}
+// The fee is per-purok. This used to read a single row named 'default', which
+// has never existed — the table holds "Purok 1" … "Purok 21" — so it silently
+// returned 0 and quoted residents a free purok clearance while the staff portal
+// charged them ₱50 on approval. Both services now resolve it the same way,
+// through lib/purokFee.js.
 
 // ── GET /api/payment/purok-fee ────────────────────────────────────────────────
 router.get('/purok-fee', authMiddleware, async (req, res) => {
   try {
-    const feeCentavos = await getPurokFeeCentavos();
+    const feeCentavos = await purokFeeCentavosForUser(req.user.id);
     res.json({ feeCentavos, feePHP: feeCentavos / 100 });
   } catch (err) {
     console.error(err);
@@ -65,7 +67,14 @@ router.post('/create-session', authMiddleware, async (req, res) => {
     const successUrl = process.env.PAYMENT_SUCCESS_URL || 'https://irequestd.onrender.com/payment/success';
     const cancelUrl = process.env.PAYMENT_CANCEL_URL || 'https://irequestd.onrender.com/payment/cancel';
 
-    const purokFeeCentavos = await getPurokFeeCentavos();
+    // Prefer the fee frozen onto the request when the Purok Leader approved it.
+    // Resolving live could bill a different amount than the resident was quoted
+    // if an admin edits the purok fee between approval and payment.
+    const approvedFeeCentavos = requests
+      .map((r) => Math.round(Number(r.purokClearanceFee || 0) * 100))
+      .find((c) => c > 0);
+    const purokFeeCentavos =
+      approvedFeeCentavos ?? (await purokFeeCentavosForUser(req.user.id));
 
     const docLineItems = await Promise.all(requests.map(async (r) => {
       const priceCentavos = await getPriceCentavos(r.documentType);
@@ -164,14 +173,22 @@ router.get('/status/:sessionId', authMiddleware, async (req, res) => {
     const isPaid = sessionStatus === 'completed' || paymentIntentStatus === 'succeeded';
 
     if (isPaid) {
-      const purokFeeCentavos = await getPurokFeeCentavos();
-      await Promise.all(requests.map(async (r) => {
+      const approvedFeeCentavos = requests
+        .map((r) => Math.round(Number(r.purokClearanceFee || 0) * 100))
+        .find((c) => c > 0);
+      const purokFeeCentavos =
+        approvedFeeCentavos ?? (await purokFeeCentavosForUser(req.user.id));
+
+      // The checkout charges one purok clearance fee for the whole basket, so
+      // it is recorded against the first request only. Adding it to every row —
+      // as this did — recorded more than was actually collected.
+      await Promise.all(requests.map(async (r, i) => {
         const PRICE = await getPriceCentavos(r.documentType);
         await prisma.request.update({
           where: { id: r.id },
           data: {
             paymentStatus: 'paid',
-            amountPaid: (PRICE + purokFeeCentavos) / 100,
+            amountPaid: (PRICE + (i === 0 ? purokFeeCentavos : 0)) / 100,
           },
         });
       }));

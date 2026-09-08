@@ -5,6 +5,9 @@ const prisma = require('../lib/prisma');
 const { nextOrNumber } = require('../lib/orNumber');
 const { toApi } = require('../lib/serialize');
 const { isUuid } = require('../lib/ids');
+const { notifyPurokLeader } = require('../lib/purokNotify');
+const { sendSms } = require('../services/sms');
+const { sendEmail } = require('../services/email');
 
 router.use(authMiddleware);
 
@@ -17,7 +20,7 @@ const DELIVERY_METHODS = ['Pick up at Barangay Office'];
 
 // Mongo generated the OR number in a pre('save') hook; Prisma has no hooks, so
 // every create path goes through here instead.
-async function createRequest(userId, item) {
+async function createRequest(userId, item, channel = 'mobile') {
   return prisma.request.create({
     data: {
       userId,
@@ -26,8 +29,21 @@ async function createRequest(userId, item) {
       additionalDetails: item.additionalDetails || '',
       deliveryMethod: item.deliveryMethod || 'Pick up at Barangay Office',
       orNumber: await nextOrNumber(),
+      channel,
     },
   });
+}
+
+// A new request sits at purokLeaderStatus 'pending' and cannot be paid for
+// until the Purok Leader approves it — but nothing used to tell them it was
+// there. Notification is fired after the response is already on its way, so a
+// slow SMS gateway never delays the resident.
+function announceToPurokLeader(userId, documentTypes, channel) {
+  notifyPurokLeader({ userId, documentTypes, channel, sendSms, sendEmail })
+    .then((r) => {
+      if (!r.notified) console.warn(`[requests] purok leader not notified: ${r.reason}`);
+    })
+    .catch((e) => console.error('[requests] notify failed:', e.message));
 }
 
 // GET /api/requests
@@ -79,8 +95,10 @@ router.post('/', async (req, res) => {
 
     const request = await createRequest(req.user.id, {
       documentType, purpose, additionalDetails, deliveryMethod,
-    });
+    }, req.body.channel === 'kiosk' ? 'kiosk' : 'mobile');
+
     res.status(201).json(toApi(request));
+    announceToPurokLeader(req.user.id, [documentType], request.channel);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -149,12 +167,15 @@ router.post('/bulk', async (req, res) => {
 
     // Sequential rather than parallel: each create draws the next OR number
     // from the shared counter, and serialising keeps them contiguous.
+    const channel = req.body.channel === 'kiosk' ? 'kiosk' : 'mobile';
     const requests = [];
     for (const item of items) {
-      requests.push(await createRequest(req.user.id, item));
+      requests.push(await createRequest(req.user.id, item, channel));
     }
 
     res.status(201).json(toApi(requests));
+    // One notification for the batch, not one per document.
+    announceToPurokLeader(req.user.id, requests.map((r) => r.documentType), channel);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

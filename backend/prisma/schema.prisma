@@ -94,6 +94,7 @@ model User {
   requests            Request[]
   completedDocuments  CompletedDocument[]
   payments            Payment[]
+  purokClearances     PurokClearance[]
   verificationProfile VerificationProfile?
 
   @@map("users")
@@ -112,6 +113,19 @@ model Admin {
   password      String?
   // 'Secretary' | 'Collector' | 'Barangay Captain' | 'Purok Leader'
   role          String   @default("Secretary")
+  // Needed to reach a Purok Leader by SMS when a request is waiting on them —
+  // email alone is too slow for a resident standing at the counter. Nullable:
+  // existing staff accounts have never had one.
+  contactNumber String?
+  // Where notifications are actually sent. `email` above is the login identity
+  // and uses the @dologon.gov.ph domain, which has no MX record — mail to it
+  // bounces. Staff put a reachable address (usually Gmail) here instead, so the
+  // login identifier stays institutional and stable.
+  notifyEmail   String?
+  // Staff accounts are deactivated (active=false) rather than deleted by the
+  // admin portal. This backend doesn't manage staff, but the column is mirrored
+  // so its Prisma client matches the shared schema.
+  active        Boolean  @default(true)
   oauthProvider String?
   oauthId       String?
   createdAt     DateTime @default(now())
@@ -123,8 +137,63 @@ model Admin {
   payments         Payment[]
   purokApprovals   Request[]      @relation("PurokLeaderApprovals")
   profileReviews   VerificationProfile[] @relation("ProfileReviews")
+  clearancesIssued PurokClearance[]      @relation("ClearancesIssued")
 
   @@map("admins")
+}
+
+// A purok clearance issued by a Purok Leader, ahead of the resident's visit.
+//
+// This is the kiosk's route to purok approval. The resident calls at the purok
+// leader's house, pays the fee in cash, and leaves with a control number. At the
+// kiosk they type that number instead of waiting for a live approval — the
+// attestation already happened, by the right person, on their own schedule.
+//
+// Online requests do NOT use this; they keep the in-app per-request approval.
+// The two mechanisms are deliberately separate and must not be mixed.
+//
+// One clearance covers one process: a single submission may carry several
+// documents, and the clearance is spent once that submission is made.
+model PurokClearance {
+  id        String  @id @default(uuid()) @db.Uuid
+  // What the resident types at the kiosk. Short and free of look-alike
+  // characters — see lib/purokClearance.js.
+  controlNo String  @unique
+  purok     String
+
+  issuedById String @db.Uuid
+  // Set when the resident already has an account. Walk-ins often do not, so the
+  // details below are captured as a snapshot and linked later.
+  userId     String? @db.Uuid
+
+  fullName      String
+  address       String
+  birthday      DateTime?
+  contactNumber String?
+
+  // Collected in cash by the purok at issuance, which is why the barangay does
+  // not charge it again when the clearance is redeemed.
+  feecentavos Int     @default(0)
+  feePaid     Boolean @default(true)
+
+  issuedAt   DateTime  @default(now())
+  validUntil DateTime?
+
+  // 'issued' | 'used' | 'void' | 'expired'
+  status String    @default("issued")
+  usedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  issuedBy Admin     @relation("ClearancesIssued", fields: [issuedById], references: [id], onDelete: Restrict)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  requests Request[]
+
+  @@index([status])
+  @@index([purok])
+  @@index([userId])
+  @@map("purok_clearances")
 }
 
 // Staff action log shown in the portal.
@@ -307,11 +376,19 @@ model Request {
   purokClearanceFee Decimal           @default(0) @db.Decimal(10, 2) // pesos (PHP), set at approval
   claimCode         String?
   yearsAtAddress    Int?
+  // Set when a kiosk request was authorised by a pre-issued purok clearance.
+  // Online requests leave this null and use the in-app approval instead.
+  purokClearanceId  String?           @db.Uuid
+  // Where the request came from: 'mobile' | 'web' | 'kiosk'. A kiosk request
+  // means a resident is physically waiting, which the Purok Leader's queue
+  // sorts to the top.
+  channel           String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   purokLeader        Admin?              @relation("PurokLeaderApprovals", fields: [purokLeaderBy], references: [id], onDelete: SetNull)
+  purokClearance     PurokClearance?     @relation(fields: [purokClearanceId], references: [id], onDelete: SetNull)
   completedDocuments CompletedDocument[]
   payments           Payment[]           @relation("PaymentRequests")
 
@@ -410,11 +487,23 @@ model VerificationProfile {
   // all existing rows use yearsAtAddress, so both are kept rather than merged.
   yearsOfResidency String    @default("")
   yearsAtAddress   Int?
+  // The purok the resident belongs to, chosen from purok_clearance_fee rather
+  // than typed. Both the clearance fee and the Purok Leader's dashboard used to
+  // recover this by pattern-matching the free-text `address`, which failed
+  // silently for anything the matcher did not recognise ("Purok9", "Purok 22").
+  // Nullable so the four residents who have not finished step 1 stay valid.
+  purok            String?
   motherName       String    @default("")
   fatherName       String    @default("")
   isPwd            Boolean   @default(false)
   isSenior         Boolean   @default(false)
   isIndigent       Boolean   @default(false)
+  // Additional demographic categories captured in step 1
+  isSoloParent       Boolean @default(false)
+  isIndigenousPeople Boolean @default(false)
+  isPregnant         Boolean @default(false)
+  isNonResident      Boolean @default(false)
+  ethnicGroup        String?
   civilStatus      String?
   nationality      String?
   occupation       String?

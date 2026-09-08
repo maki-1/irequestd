@@ -28,8 +28,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
-  static const Color _limeGreen = Color(0xFF4CFF4C);
+  static const Color _green = Color(0xFF0B3D2E);
+  static const Color _limeGreen = Color(0xFF2FA355);
 
   String _username = '';
   String _firstName = '';
@@ -244,11 +244,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E9),
+                  color: const Color(0xFFEDF4EC),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.waving_hand_rounded,
-                    color: Color(0xFF1A6B1A), size: 40),
+                    color: Color(0xFF0B3D2E), size: 40),
               ),
               const SizedBox(height: 20),
               Text(
@@ -270,13 +270,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF4F6F4),
+                  color: const Color(0xFFEDF4EC),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Row(
                   children: const [
                     Icon(Icons.person_add_alt_1_rounded,
-                        color: Color(0xFF1A6B1A), size: 28),
+                        color: Color(0xFF0B3D2E), size: 28),
                     SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -312,7 +312,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   label: const Text('Add Profile Picture',
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1A6B1A),
+                    backgroundColor: const Color(0xFF0B3D2E),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(32)),
@@ -355,7 +355,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F4),
+      backgroundColor: const Color(0xFFEDF4EC),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: _green))
           : RefreshIndicator(
@@ -696,12 +696,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               CircleAvatar(
                 radius: 40,
-                backgroundColor: const Color(0xFFE8F5E9),
+                backgroundColor: const Color(0xFFEDF4EC),
                 backgroundImage:
                     avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
                 child: avatarUrl.isEmpty
                     ? const Icon(Icons.person_rounded,
-                        color: Color(0xFF1A6B1A), size: 44)
+                        color: Color(0xFF0B3D2E), size: 44)
                     : null,
               ),
               const SizedBox(height: 10),
@@ -742,10 +742,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E9),
+                  color: const Color(0xFFEDF4EC),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                      color: const Color(0xFF1A6B1A), width: 1.2),
+                      color: const Color(0xFF0B3D2E), width: 1.2),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -754,7 +754,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF1A6B1A),
+                            color: Color(0xFF0B3D2E),
                             letterSpacing: 1.5)),
                     const SizedBox(height: 6),
                     Row(
@@ -764,7 +764,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               style: const TextStyle(
                                   fontSize: 26,
                                   fontWeight: FontWeight.w900,
-                                  color: Color(0xFF1A6B1A),
+                                  color: Color(0xFF0B3D2E),
                                   letterSpacing: 4)),
                         ),
                         GestureDetector(
@@ -782,12 +782,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1A6B1A)
+                              color: const Color(0xFF0B3D2E)
                                   .withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(Icons.copy_outlined,
-                                size: 18, color: Color(0xFF1A6B1A)),
+                                size: 18, color: Color(0xFF0B3D2E)),
                           ),
                         ),
                       ],
@@ -801,7 +801,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1A6B1A),
+                    backgroundColor: const Color(0xFF0B3D2E),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -876,7 +876,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: const Text('Clear all',
                             style: TextStyle(
                                 fontSize: 12,
-                                color: Color(0xFF1A6B1A),
+                                color: Color(0xFF0B3D2E),
                                 fontWeight: FontWeight.w600)),
                       ),
                     ],
@@ -920,7 +920,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               child: Container(
                                 color: isRead
                                     ? Colors.transparent
-                                    : const Color(0xFFE8F5E9),
+                                    : const Color(0xFFEDF4EC),
                                 child: ListTile(
                                   leading: Container(
                                     width: 40,
@@ -965,7 +965,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                 fontWeight: FontWeight.w800,
                                                 color: isRead
                                                     ? Colors.black38
-                                                    : const Color(0xFF1A6B1A),
+                                                    : const Color(0xFF0B3D2E),
                                                 letterSpacing: 1.5)),
                                     ],
                                   ),
@@ -1415,7 +1415,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 Widget _bottomNav(BuildContext context, int currentIndex) {
   return BottomNavigationBar(
     currentIndex: currentIndex,
-    selectedItemColor: const Color(0xFF1A6B1A),
+    selectedItemColor: const Color(0xFF0B3D2E),
     unselectedItemColor: Colors.grey,
     showUnselectedLabels: true,
     type: BottomNavigationBarType.fixed,

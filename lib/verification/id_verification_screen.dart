@@ -24,8 +24,8 @@ class IdVerificationScreen extends StatefulWidget {
 }
 
 class _IdVerificationScreenState extends State<IdVerificationScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
-  static const Color _lime = Color(0xFF4CFF4C);
+  static const Color _green = Color(0xFF0B3D2E);
+  static const Color _lime = Color(0xFF2FA355);
 
   // IDs that only have a front (no back side needed)
   static const _singlePageIds = {
@@ -499,7 +499,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.check_circle_rounded, color: Color(0xFF4CFF4C), size: 14),
+                  Icon(Icons.check_circle_rounded, color: Color(0xFF2FA355), size: 14),
                   SizedBox(width: 5),
                   Text('Captured', style: TextStyle(color: Colors.white, fontSize: 12)),
                 ],
@@ -586,13 +586,13 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
         child: Row(children: [
           Icon(
             isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-            color: isSelected ? const Color(0xFF1A6B1A) : Colors.white54,
+            color: isSelected ? const Color(0xFF0B3D2E) : Colors.white54,
           ),
           const SizedBox(width: 12),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(title,
                 style: TextStyle(
-                    color: isSelected ? const Color(0xFF1A6B1A) : Colors.white,
+                    color: isSelected ? const Color(0xFF0B3D2E) : Colors.white,
                     fontWeight: FontWeight.w600,
                     fontSize: 14)),
             Text(subtitle,
@@ -625,7 +625,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
       dropdownColor: Colors.white,
       isExpanded: true,
       style: const TextStyle(
-          color: Color(0xFF1A6B1A), fontSize: 14, fontWeight: FontWeight.w600),
+          color: Color(0xFF0B3D2E), fontSize: 14, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(color: Color(0xFF7BAE7B), fontSize: 14),
@@ -638,7 +638,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
       items: items
           .map((e) => DropdownMenuItem(
               value: e,
-              child: Text(e, style: const TextStyle(color: Color(0xFF1A6B1A)))))
+              child: Text(e, style: const TextStyle(color: Color(0xFF0B3D2E)))))
           .toList(),
     );
   }
@@ -1152,7 +1152,7 @@ class _IdCameraPageState extends State<_IdCameraPage>
                             child: ElevatedButton(
                               onPressed: _usePhoto,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF4CFF4C),
+                                backgroundColor: const Color(0xFF2FA355),
                                 foregroundColor: Colors.black,
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
@@ -1240,7 +1240,7 @@ class _CardFramePainter extends CustomPainter {
 
     // Card border
     final borderColor = captured
-        ? const Color(0xFF4CFF4C)
+        ? const Color(0xFF2FA355)
         : Color.lerp(Colors.white54, Colors.white, cornerGlow)!;
     canvas.drawRRect(
       cardRect,
@@ -1253,7 +1253,7 @@ class _CardFramePainter extends CustomPainter {
     // Corner markers
     final r = cardRect.outerRect;
     final markerColor = captured
-        ? const Color(0xFF4CFF4C)
+        ? const Color(0xFF2FA355)
         : Color.lerp(Colors.white70, Colors.white, cornerGlow)!;
     _drawCorners(canvas, r, markerColor);
   }

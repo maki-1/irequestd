@@ -42,7 +42,7 @@ enum _LivenessStep { position, moveCloser, moveBack, blink, verifying, done, fai
 
 class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
     with TickerProviderStateMixin {
-  static const Color _lime = Color(0xFF4CFF4C);
+  static const Color _lime = Color(0xFF2FA355);
   static const Color _gold = Color(0xFFFFD700);
 
   CameraController? _ctrl;
@@ -488,7 +488,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                   circleColor = Colors.black.withValues(alpha: 0.62);
                   break;
                 case _LivenessStep.done:
-                  circleColor = const Color(0xFF4CFF4C).withValues(alpha: 0.45);
+                  circleColor = const Color(0xFF2FA355).withValues(alpha: 0.45);
                   break;
                 case _LivenessStep.failed:
                   circleColor = Colors.red.withValues(alpha: 0.55);
@@ -569,10 +569,10 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.check_circle_rounded, color: Color(0xFF4CFF4C), size: 18),
+                        Icon(Icons.check_circle_rounded, color: Color(0xFF2FA355), size: 18),
                         SizedBox(width: 8),
                         Text('Face scan complete!',
-                            style: TextStyle(color: Color(0xFF4CFF4C), fontSize: 14, fontWeight: FontWeight.w600)),
+                            style: TextStyle(color: Color(0xFF2FA355), fontSize: 14, fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
@@ -656,7 +656,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(width: 20, height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFF4CFF4C))),
+                child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFF2FA355))),
               SizedBox(width: 12),
               Text('Verifying…', style: TextStyle(color: Colors.white70, fontSize: 15)),
             ],

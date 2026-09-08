@@ -2,9 +2,22 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
 const prisma = require('../lib/prisma');
+const { listPuroks, isKnownPurok } = require('../lib/purokFee');
 const { uploadIdDoc, uploadFace, uploadFreeProof } = require('../config/cloudinary');
 
 router.use(authMiddleware);
+
+// ── GET /api/verification/puroks ─────────────────────────────────────────────
+// Populates the purok picker in step 1. Served from purok_clearance_fee, which
+// is already the list of puroks the barangay recognises.
+router.get('/puroks', async (req, res) => {
+  try {
+    res.json(await listPuroks());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 // Mongo's findOneAndUpdate with { new: true } returned null when no document
 // matched; Prisma's update throws P2025 instead. This keeps the old shape so
@@ -37,11 +50,26 @@ router.get('/status', async (req, res) => {
 // ── POST /api/verification/step1 ──────────────────────────────────────────────
 router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, res) => {
   try {
-    const { fullName, address, birthday, sex, indigent, yearsOfResidency, motherName, fatherName, isPwd } =
-      req.body;
+    const {
+      fullName, address, purok, birthday, sex, indigent, yearsOfResidency, motherName, fatherName, isPwd,
+      isSoloParent, isIndigenousPeople, isPregnant, isNonResident, ethnicGroup,
+    } = req.body;
+
+    const asBool = (v) => v === true || v === 'true';
 
     if (!fullName || !address || !birthday || !sex || !indigent || !yearsOfResidency || !motherName || !fatherName) {
       return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    // Purok decides the clearance fee and which Purok Leader reviews the
+    // request, so it is validated against the configured list rather than
+    // accepted as text — "Purok9" or "Purok 22" would otherwise be stored and
+    // then silently resolve to a zero fee.
+    if (!purok) {
+      return res.status(400).json({ message: 'Please select your purok' });
+    }
+    if (!(await isKnownPurok(purok))) {
+      return res.status(400).json({ message: `"${purok}" is not a recognised purok` });
     }
 
     const parsedBirthday = new Date(birthday);
@@ -59,6 +87,7 @@ router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, r
     const updateData = {
       fullName: fullName.trim(),
       address: address.trim(),
+      purok: String(purok).trim(),
       birthday: parsedBirthday,
       age,
       gender: sex.trim(),
@@ -66,7 +95,12 @@ router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, r
       yearsOfResidency,
       motherName: motherName.trim(),
       fatherName: fatherName.trim(),
-      isPwd: isPwd === true || isPwd === 'true',
+      isPwd: asBool(isPwd),
+      isSoloParent: asBool(isSoloParent),
+      isIndigenousPeople: asBool(isIndigenousPeople),
+      isPregnant: asBool(isPregnant),
+      isNonResident: asBool(isNonResident),
+      ethnicGroup: ethnicGroup?.trim() || null,
       currentStep: 2,
     };
 

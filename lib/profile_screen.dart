@@ -9,7 +9,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
+  static const Color _green = Color(0xFF0B3D2E);
 
   Map<String, dynamic>? _profile;
   bool _loading = true;
@@ -33,7 +33,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F4),
+      backgroundColor: const Color(0xFFEDF4EC),
       appBar: AppBar(
         backgroundColor: _green,
         elevation: 0,
@@ -101,7 +101,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       label: 'Regular Account',
       icon: Icons.person_outline_rounded,
       color: _green,
-      bg: const Color(0xFFE8F5E9),
+      bg: const Color(0xFFEDF4EC),
     );
   }
 
@@ -335,7 +335,7 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: const Color(0xFF1A6B1A)),
+          Icon(icon, size: 20, color: const Color(0xFF0B3D2E)),
           const SizedBox(width: 16),
           Expanded(
             child: Column(

@@ -11,7 +11,7 @@ class RequestDocumentScreen extends StatefulWidget {
 }
 
 class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
+  static const Color _green = Color(0xFF0B3D2E);
 
   static const _docTypes = [
     'Barangay Clearance',
@@ -71,7 +71,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Request submitted! Awaiting Purok Leader approval.'),
-            backgroundColor: Color(0xFF1A6B1A),
+            backgroundColor: Color(0xFF0B3D2E),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -108,7 +108,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     final charCount = _detailsController.text.length;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F4),
+      backgroundColor: const Color(0xFFEDF4EC),
       appBar: AppBar(
         backgroundColor: _green,
         elevation: 0,
@@ -126,21 +126,21 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
+                color: const Color(0xFFEDF4EC),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF1A6B1A).withValues(alpha: 0.3)),
+                border: Border.all(color: const Color(0xFF0B3D2E).withValues(alpha: 0.3)),
               ),
               child: const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFF1A6B1A)),
+                  Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFF0B3D2E)),
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'After submitting, your request will be reviewed by the Purok Leader. '
                       'You will be notified to pay once it is approved.',
                       style: TextStyle(
-                          fontSize: 12, color: Color(0xFF1A6B1A), height: 1.4),
+                          fontSize: 12, color: Color(0xFF0B3D2E), height: 1.4),
                     ),
                   ),
                 ],
@@ -251,7 +251,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: checked ? const Color(0xFFE8F5E9) : Colors.white,
+          color: checked ? const Color(0xFFEDF4EC) : Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: checked ? _green : Colors.black12,

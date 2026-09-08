@@ -15,8 +15,8 @@ class EducationScreen extends StatefulWidget {
 }
 
 class _EducationScreenState extends State<EducationScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
-  static const Color _limeGreen = Color(0xFF4CFF4C);
+  static const Color _green = Color(0xFF0B3D2E);
+  static const Color _limeGreen = Color(0xFF2FA355);
 
   final _schoolController = TextEditingController();
   final _yearController = TextEditingController();
@@ -60,7 +60,7 @@ class _EducationScreenState extends State<EducationScreen> {
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
             ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF1A6B1A)),
+              leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF0B3D2E)),
               title: const Text('Take Photo'),
               onTap: () async {
                 Navigator.pop(context);
@@ -70,7 +70,7 @@ class _EducationScreenState extends State<EducationScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF1A6B1A)),
+              leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF0B3D2E)),
               title: const Text('Choose from Gallery'),
               onTap: () async {
                 Navigator.pop(context);

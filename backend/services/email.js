@@ -12,6 +12,19 @@ function createTransporter() {
   });
 }
 
+// Generic sender, for messages that are not one of the templated emails below.
+// Takes the same { to, subject, html } shape the admin portal's sendEmail uses,
+// so shared helpers can be handed either implementation.
+async function sendEmail({ to, subject, html }) {
+  const transporter = createTransporter();
+  return transporter.sendMail({
+    from: `"iRequest Dologon" <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    html,
+  });
+}
+
 async function sendOtpEmail(to, otp, type = 'reset') {
   const transporter = createTransporter();
 
@@ -186,4 +199,4 @@ async function sendPurokClearanceForm(to, { fullName, purokNumber, controlNo, da
   return info;
 }
 
-module.exports = { sendOtpEmail, sendPurokClearanceForm };
+module.exports = { sendEmail, sendOtpEmail, sendPurokClearanceForm };

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "irequestd-flutter-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8090", "--directory", "build/web"],
+      "port": 8090
+    },
+    {
+      "name": "irequestd-kiosk-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5174", "--directory", "build/web"],
+      "port": 5174
+    }
+  ]
+}

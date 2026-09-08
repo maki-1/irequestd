@@ -14,7 +14,7 @@ class MyRequestsScreen extends StatefulWidget {
 
 class _MyRequestsScreenState extends State<MyRequestsScreen>
     with SingleTickerProviderStateMixin {
-  static const Color _green = Color(0xFF1A6B1A);
+  static const Color _green = Color(0xFF0B3D2E);
 
   late final TabController _tabController;
   List<dynamic> _requests = [];
@@ -149,7 +149,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
     final pickupCount = _readyForPickup.length;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F4),
+      backgroundColor: const Color(0xFFEDF4EC),
       appBar: AppBar(
         backgroundColor: _green,
         elevation: 0,
@@ -159,7 +159,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                 color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: const Color(0xFF4CFF4C),
+          indicatorColor: const Color(0xFF2FA355),
           indicatorWeight: 3,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
@@ -285,12 +285,12 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
               // Avatar
               CircleAvatar(
                 radius: 40,
-                backgroundColor: const Color(0xFFE8F5E9),
+                backgroundColor: const Color(0xFFEDF4EC),
                 backgroundImage:
                     avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
                 child: avatarUrl.isEmpty
                     ? const Icon(Icons.person_rounded,
-                        color: Color(0xFF1A6B1A), size: 44)
+                        color: Color(0xFF0B3D2E), size: 44)
                     : null,
               ),
               const SizedBox(height: 12),
@@ -316,10 +316,10 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E9),
+                  color: const Color(0xFFEDF4EC),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                      color: const Color(0xFF1A6B1A), width: 1.2),
+                      color: const Color(0xFF0B3D2E), width: 1.2),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -328,7 +328,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                         style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF1A6B1A),
+                            color: Color(0xFF0B3D2E),
                             letterSpacing: 1.5)),
                     const SizedBox(height: 6),
                     Row(
@@ -338,7 +338,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                               style: const TextStyle(
                                   fontSize: 26,
                                   fontWeight: FontWeight.w900,
-                                  color: Color(0xFF1A6B1A),
+                                  color: Color(0xFF0B3D2E),
                                   letterSpacing: 4)),
                         ),
                         GestureDetector(
@@ -356,12 +356,12 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1A6B1A)
+                              color: const Color(0xFF0B3D2E)
                                   .withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(Icons.copy_outlined,
-                                size: 18, color: Color(0xFF1A6B1A)),
+                                size: 18, color: Color(0xFF0B3D2E)),
                           ),
                         ),
                       ],
@@ -376,7 +376,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1A6B1A),
+                    backgroundColor: const Color(0xFF0B3D2E),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
@@ -431,7 +431,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
       child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8F5E9),
+        color: const Color(0xFFEDF4EC),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.green, width: 1.5),
         boxShadow: [
@@ -519,7 +519,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                     style: const TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w900,
-                        color: Color(0xFF1A6B1A),
+                        color: Color(0xFF0B3D2E),
                         letterSpacing: 5),
                   ),
                 ),
@@ -821,7 +821,7 @@ class _RetryPaymentSheet extends StatefulWidget {
 
 class _RetryPaymentSheetState extends State<_RetryPaymentSheet> {
   static const Color _orange = Color(0xFFE65100);
-  static const Color _green  = Color(0xFF1A6B1A);
+  static const Color _green  = Color(0xFF0B3D2E);
 
   _RetryState _state = _RetryState.idle;
   String? _sessionId;
@@ -1144,7 +1144,7 @@ class _RetryPaymentSheetState extends State<_RetryPaymentSheet> {
 Widget _bottomNav(BuildContext context, int currentIndex) {
   return BottomNavigationBar(
     currentIndex: currentIndex,
-    selectedItemColor: const Color(0xFF1A6B1A),
+    selectedItemColor: const Color(0xFF0B3D2E),
     unselectedItemColor: Colors.grey,
     showUnselectedLabels: true,
     type: BottomNavigationBarType.fixed,

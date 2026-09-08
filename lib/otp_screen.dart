@@ -22,9 +22,9 @@ class OtpScreen extends StatefulWidget {
 }
 
 class _OtpScreenState extends State<OtpScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
+  static const Color _green = Color(0xFF0B3D2E);
   static const Color _gold = Color(0xFFFFD700);
-  static const Color _limeGreen = Color(0xFF4CFF4C);
+  static const Color _limeGreen = Color(0xFF2FA355);
 
   static const int _otpLength = 6;
   static const int _resendCooldown = 60; // seconds
@@ -143,7 +143,7 @@ class _OtpScreenState extends State<OtpScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('OTP resent successfully'),
-          backgroundColor: Color(0xFF1A6B1A),
+          backgroundColor: Color(0xFF0B3D2E),
           behavior: SnackBarBehavior.floating,
         ),
       );

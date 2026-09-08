@@ -12,9 +12,9 @@ class ResetPasswordScreen extends StatefulWidget {
 }
 
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
+  static const Color _green = Color(0xFF0B3D2E);
   static const Color _gold = Color(0xFFFFD700);
-  static const Color _limeGreen = Color(0xFF4CFF4C);
+  static const Color _limeGreen = Color(0xFF2FA355);
 
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -60,7 +60,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Password reset successfully! Please log in.'),
-            backgroundColor: Color(0xFF1A6B1A),
+            backgroundColor: Color(0xFF0B3D2E),
             behavior: SnackBarBehavior.floating,
           ),
         );

@@ -55,7 +55,7 @@ class StepProgressBar extends StatelessWidget {
                               '$step',
                               style: TextStyle(
                                 color: isActive
-                                    ? const Color(0xFF1A6B1A)
+                                    ? const Color(0xFF0B3D2E)
                                     : Colors.white54,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,

@@ -15,7 +15,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
+  static const Color _green = Color(0xFF0B3D2E);
 
   bool _smsNotif = true;
   bool _emailNotif = true;
@@ -128,7 +128,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             ListTile(
               leading: const CircleAvatar(
-                backgroundColor: Color(0xFFE8F5E9),
+                backgroundColor: Color(0xFFEDF4EC),
                 child: Icon(Icons.camera_alt, color: _green),
               ),
               title: const Text('Take a Photo'),
@@ -136,7 +136,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             ListTile(
               leading: const CircleAvatar(
-                backgroundColor: Color(0xFFE8F5E9),
+                backgroundColor: Color(0xFFEDF4EC),
                 child: Icon(Icons.photo_library, color: _green),
               ),
               title: const Text('Choose from Gallery'),
@@ -207,7 +207,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final avatarUrl = ApiService.avatarUrl(_avatarFilename);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F4),
+      backgroundColor: const Color(0xFFEDF4EC),
       appBar: AppBar(
         backgroundColor: _green,
         elevation: 0,
@@ -500,7 +500,7 @@ class _ChangePasswordSheet extends StatefulWidget {
 }
 
 class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
-  static const Color _green = Color(0xFF1A6B1A);
+  static const Color _green = Color(0xFF0B3D2E);
 
   final _currentCtrl = TextEditingController();
   final _newCtrl = TextEditingController();
@@ -666,7 +666,7 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
         labelText: label,
         labelStyle: const TextStyle(color: Colors.black45),
         filled: true,
-        fillColor: const Color(0xFFF4F6F4),
+        fillColor: const Color(0xFFEDF4EC),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,

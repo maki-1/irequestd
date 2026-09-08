@@ -12,8 +12,8 @@ class VerificationWaitingScreen extends StatefulWidget {
 
 class _VerificationWaitingScreenState
     extends State<VerificationWaitingScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
-  static const Color _limeGreen = Color(0xFF4CFF4C);
+  static const Color _green = Color(0xFF0B3D2E);
+  static const Color _limeGreen = Color(0xFF2FA355);
 
   String? _status;
   bool _loading = true;
@@ -62,7 +62,7 @@ class _VerificationWaitingScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F4),
+      backgroundColor: const Color(0xFFEDF4EC),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())

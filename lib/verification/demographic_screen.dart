@@ -17,8 +17,8 @@ class DemographicScreen extends StatefulWidget {
 }
 
 class _DemographicScreenState extends State<DemographicScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
-  static const Color _limeGreen = Color(0xFF4CFF4C);
+  static const Color _green = Color(0xFF0B3D2E);
+  static const Color _limeGreen = Color(0xFF2FA355);
 
   static const _fixedMunicipality = 'Maramag';
   static const _fixedBarangay = 'Dologon';
@@ -56,10 +56,15 @@ class _DemographicScreenState extends State<DemographicScreen> {
   final _motherNameController = TextEditingController();
   final _fatherNameController = TextEditingController();
   final _indigentOtherController = TextEditingController();
+  final _ethnicGroupController = TextEditingController();
 
   String? _sex;
   String? _pwdStatus;
   String? _indigentStatus;
+  String? _soloParentStatus;
+  String? _indigenousStatus;
+  String? _pregnantStatus;
+  String? _nonResidentStatus;
   DateTime? _selectedBirthday;
 
   // Unified proof document — PWD ID, PSA Birth Cert, or Senior Citizen Card
@@ -121,6 +126,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
     _motherNameController.dispose();
     _fatherNameController.dispose();
     _indigentOtherController.dispose();
+    _ethnicGroupController.dispose();
     super.dispose();
   }
 
@@ -133,7 +139,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
           colorScheme: const ColorScheme.light(
-            primary: Color(0xFF1A6B1A),
+            primary: Color(0xFF0B3D2E),
             onPrimary: Colors.white,
           ),
         ),
@@ -203,6 +209,12 @@ class _DemographicScreenState extends State<DemographicScreen> {
           'motherName': _motherNameController.text.trim(),
           'fatherName': _fatherNameController.text.trim(),
           'isPwd': _pwdStatus == 'Yes',
+          'isSoloParent': _soloParentStatus == 'Yes',
+          'isIndigenousPeople': _indigenousStatus == 'Yes',
+          'isPregnant': _sex == 'Female' && _pregnantStatus == 'Yes',
+          'isNonResident': _nonResidentStatus == 'Yes',
+          if (_indigenousStatus == 'Yes')
+            'ethnicGroup': _ethnicGroupController.text.trim(),
           'indigent': _indigentStatus == 'Others'
               ? _indigentOtherController.text.trim()
               : _indigentStatus!,
@@ -245,7 +257,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
             const SizedBox(height: 8),
             ListTile(
               leading: const Icon(Icons.camera_alt_outlined,
-                  color: Color(0xFF1A6B1A)),
+                  color: Color(0xFF0B3D2E)),
               title: const Text('Take Photo'),
               onTap: () async {
                 Navigator.pop(context);
@@ -256,7 +268,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined,
-                  color: Color(0xFF1A6B1A)),
+                  color: Color(0xFF0B3D2E)),
               title: const Text('Choose from Gallery'),
               onTap: () async {
                 Navigator.pop(context);
@@ -665,6 +677,71 @@ class _DemographicScreenState extends State<DemographicScreen> {
                   ),
                 ],
                 const SizedBox(height: 14),
+
+                // ── Solo Parent ───────────────────────────────────────
+                _label('Solo Parent?', isRequired: true),
+                _simpleDropdown(
+                  value: _soloParentStatus,
+                  hint: 'Yes or No',
+                  items: const ['Yes', 'No'],
+                  onChanged: (v) => setState(() => _soloParentStatus = v),
+                  validator: (v) => v == null ? 'Required' : null,
+                ),
+                const SizedBox(height: 14),
+
+                // ── Indigenous People ─────────────────────────────────
+                _label('Indigenous People (IP)?', isRequired: true),
+                _simpleDropdown(
+                  value: _indigenousStatus,
+                  hint: 'Yes or No',
+                  items: const ['Yes', 'No'],
+                  onChanged: (v) => setState(() {
+                    _indigenousStatus = v;
+                    if (v != 'Yes') _ethnicGroupController.clear();
+                  }),
+                  validator: (v) => v == null ? 'Required' : null,
+                ),
+                if (_indigenousStatus == 'Yes') ...[
+                  const SizedBox(height: 10),
+                  _label('Ethnic Group / Tribe', isRequired: true),
+                  _textField(
+                    controller: _ethnicGroupController,
+                    hint: 'e.g. Manobo, Higaonon',
+                    maxLength: 60,
+                    validator: (v) {
+                      if (_indigenousStatus == 'Yes' &&
+                          (v == null || v.trim().isEmpty)) return 'Required';
+                      return null;
+                    },
+                    formatters: [LengthLimitingTextInputFormatter(60)],
+                  ),
+                ],
+                const SizedBox(height: 14),
+
+                // ── Non-Resident ──────────────────────────────────────
+                _label('Non-Resident?', isRequired: true),
+                _simpleDropdown(
+                  value: _nonResidentStatus,
+                  hint: 'Yes or No',
+                  items: const ['Yes', 'No'],
+                  onChanged: (v) => setState(() => _nonResidentStatus = v),
+                  validator: (v) => v == null ? 'Required' : null,
+                ),
+                const SizedBox(height: 14),
+
+                // ── Pregnant (female only) ────────────────────────────
+                if (_sex == 'Female') ...[
+                  _label('Pregnant?', isRequired: true),
+                  _simpleDropdown(
+                    value: _pregnantStatus,
+                    hint: 'Yes or No',
+                    items: const ['Yes', 'No'],
+                    onChanged: (v) => setState(() => _pregnantStatus = v),
+                    validator: (v) =>
+                        _sex == 'Female' && v == null ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 14),
+                ],
 
                 // ── Proof document ────────────────────────────────────
                 if (_proofRequired) ...[

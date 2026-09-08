@@ -38,9 +38,9 @@ class SignUpScreen extends StatefulWidget {
 }
 
 class _SignUpScreenState extends State<SignUpScreen> {
-  static const Color _green = Color(0xFF1A6B1A);
+  static const Color _green = Color(0xFF0B3D2E);
   static const Color _gold = Color(0xFFFFD700);
-  static const Color _limeGreen = Color(0xFF4CFF4C);
+  static const Color _limeGreen = Color(0xFF2FA355);
 
   final _usernameController = TextEditingController();
   final _contactController = TextEditingController();
@@ -390,7 +390,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
           child: SizedBox(
             width: 18,
             height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1A6B1A)),
+            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0B3D2E)),
           ),
         );
       case 'available':

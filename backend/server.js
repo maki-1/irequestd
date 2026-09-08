@@ -33,12 +33,20 @@ app.use('/admin', express.static(path.join(__dirname, '../admin')));
 // Health check
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
+// Official iRequestDologon mark. These landing pages are served standalone by
+// Express (no static asset pipeline), so the icon is referenced from the
+// project's Cloudinary account.
+const LOGO_ICON_URL =
+  'https://res.cloudinary.com/dvw7ky1xq/image/upload/f_png,w_64,h_64,c_fit/v1776177600/Irequest_Logo_kbbr2b.jpg';
+
 // PayMongo redirect landing pages
 const paymentHtml = (title, message, emoji) => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="icon" type="image/png" href="${LOGO_ICON_URL}"/>
+  <meta name="theme-color" content="#0B3D2E"/>
   <title>${title}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}

@@ -193,11 +193,24 @@ router.put('/applications/:id/approve', async (req, res) => {
   try {
     if (!isUuid(req.params.id)) return res.status(404).json({ message: 'Not found' });
 
-    const { count } = await prisma.verificationProfile.updateMany({
+    const target = await prisma.verificationProfile.findUnique({
       where: { id: req.params.id },
-      data: { status: 'approved', rejectionReason: '', reviewedAt: new Date() },
+      select: { userId: true },
     });
-    if (count === 0) return res.status(404).json({ message: 'Not found' });
+    if (!target) return res.status(404).json({ message: 'Not found' });
+
+    // The profile status and User.isVerified must move together — the mobile app
+    // gates on the former, the web portal on the latter.
+    await prisma.$transaction([
+      prisma.verificationProfile.update({
+        where: { id: req.params.id },
+        data: { status: 'approved', rejectionReason: '', reviewedAt: new Date() },
+      }),
+      prisma.user.update({
+        where: { id: target.userId },
+        data: { isVerified: true, verificationStatus: 'approved' },
+      }),
+    ]);
     res.json({ message: 'Application approved', status: 'approved' });
   } catch (err) {
     console.error(err);
@@ -211,11 +224,22 @@ router.put('/applications/:id/reject', async (req, res) => {
     if (!isUuid(req.params.id)) return res.status(404).json({ message: 'Not found' });
 
     const { reason = '' } = req.body;
-    const { count } = await prisma.verificationProfile.updateMany({
+    const target = await prisma.verificationProfile.findUnique({
       where: { id: req.params.id },
-      data: { status: 'rejected', rejectionReason: reason, reviewedAt: new Date() },
+      select: { userId: true },
     });
-    if (count === 0) return res.status(404).json({ message: 'Not found' });
+    if (!target) return res.status(404).json({ message: 'Not found' });
+
+    await prisma.$transaction([
+      prisma.verificationProfile.update({
+        where: { id: req.params.id },
+        data: { status: 'rejected', rejectionReason: reason, reviewedAt: new Date() },
+      }),
+      prisma.user.update({
+        where: { id: target.userId },
+        data: { isVerified: false, verificationStatus: 'rejected' },
+      }),
+    ]);
     res.json({ message: 'Application rejected', status: 'rejected' });
   } catch (err) {
     console.error(err);
@@ -306,25 +330,39 @@ router.put('/requests/:id/purok-reject', async (req, res) => {
 });
 
 // ── GET /api/admin/purok-clearance-fee ────────────────────────────────────────
+// Fees are per-purok. This previously reported a single row named 'default',
+// which does not exist, so it always answered ₱0 regardless of the 21 real rows.
 router.get('/purok-clearance-fee', async (req, res) => {
   try {
-    const fee = await prisma.purokClearanceFee.findUnique({ where: { purokName: 'default' } });
-    res.json({
-      feecentavos: fee?.feecentavos ?? 0,
-      feePHP: (fee?.feecentavos ?? 0) / 100,
-      treasurerName: fee?.treasurerName ?? '',
-      purokPresident: fee?.purokPresident ?? '',
-      description: fee?.description ?? '',
-    });
+    const fees = await prisma.purokClearanceFee.findMany({ orderBy: { purokName: 'asc' } });
+    res.json(
+      toApi(
+        fees.map((f) => ({
+          purokName: f.purokName,
+          feecentavos: f.feecentavos,
+          feePHP: f.feecentavos / 100,
+          treasurerName: f.treasurerName,
+          purokPresident: f.purokPresident,
+          description: f.description,
+        }))
+      )
+    );
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// ── PUT /api/admin/purok-clearance-fee ────────────────────────────────────────
-router.put('/purok-clearance-fee', async (req, res) => {
+// ── PUT /api/admin/purok-clearance-fee/:purokName ─────────────────────────────
+// purokName is now required. The previous version upserted a row literally
+// named 'default', which would have shadowed the real per-purok fees the moment
+// anyone called it.
+router.put('/purok-clearance-fee/:purokName', async (req, res) => {
   try {
+    const purokName = decodeURIComponent(req.params.purokName).trim();
+    if (!purokName || purokName.toLowerCase() === 'default') {
+      return res.status(400).json({ message: 'A real purok name is required' });
+    }
     const { feecentavos, treasurerName, purokPresident, description } = req.body;
     if (feecentavos === undefined || typeof feecentavos !== 'number' || feecentavos < 0) {
       return res.status(400).json({ message: 'feecentavos must be a non-negative number' });
@@ -337,8 +375,8 @@ router.put('/purok-clearance-fee', async (req, res) => {
       updatedBy: req.admin?.email ?? req.admin?.name ?? 'admin',
     };
     const fee = await prisma.purokClearanceFee.upsert({
-      where: { purokName: 'default' },
-      create: { purokName: 'default', ...data },
+      where: { purokName },
+      create: { purokName, ...data },
       update: data,
     });
     res.json(toApi(fee));

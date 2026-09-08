@@ -43,4 +43,4 @@ async function sendPasswordResetOtp(to, otp) {
   );
 }
 
-module.exports = { sendOtp, sendPasswordResetOtp };
+module.exports = { sendSms, sendOtp, sendPasswordResetOtp };
