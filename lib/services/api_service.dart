@@ -4,11 +4,19 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Change this to your machine's IP if running on a physical device.
-  // Use 10.0.2.2 for Android emulator, localhost for web/desktop.
-  // static const String _baseUrl = 'https://irequestd.onrender.com/api';
-  // static const String _baseUrl = 'http://192.168.1.43:5000/api'; // Physical device
-  static const String _baseUrl = 'http://localhost:3000/api'; // Flutter Web/
+  // Defaults to the deployed Render backend so installed builds (Android/iOS)
+  // work without any build flag. `localhost` must never be the default: on a
+  // phone it resolves to the handset itself, so every request fails before it
+  // reaches the network.
+  //
+  // Override for local development, e.g.
+  //   flutter run --dart-define=API_BASE=http://localhost:3000/api        (web/desktop)
+  //   flutter run --dart-define=API_BASE=http://10.0.2.2:3000/api         (Android emulator)
+  //   flutter run --dart-define=API_BASE=http://192.168.1.43:3000/api     (physical device on LAN)
+  static const String _baseUrl = String.fromEnvironment(
+    'API_BASE',
+    defaultValue: 'https://irequestd.onrender.com/api',
+  );
 
   // ── Token helpers ────────────────────────────────────────────────────────────
 
