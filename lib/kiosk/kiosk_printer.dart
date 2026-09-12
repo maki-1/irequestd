@@ -33,11 +33,15 @@ class KioskPrinter {
   static const int _sizeMedium = 1;
   static const int _sizeLarge = 2;
 
-  Future<bool> _ensureConnected() async {
+  /// Returns null on success, or a short reason on failure. Returning the
+  /// reason (rather than just logging it) is what lets the success screen
+  /// show *why* nothing printed — a kiosk tablet in the field has no adb
+  /// logcat attached, so this is the only diagnostic there is.
+  Future<String?> _ensureConnected() async {
     try {
-      if (await _printer.isConnected == true) return true;
+      if (await _printer.isConnected == true) return null;
       // Another print already in flight and connecting — don't race it.
-      if (_connecting) return false;
+      if (_connecting) return 'Already connecting to printer';
       _connecting = true;
 
       // BLUETOOTH_CONNECT (Android 12+) / the legacy location permission
@@ -50,9 +54,8 @@ class KioskPrinter {
       // unreachable printer, and printing is skipped.
       final bonded = await _printer.getBondedDevices();
       if (bonded.isEmpty) {
-        debugPrint('[kiosk-printer] no bonded Bluetooth devices — pair the '
-            'printer (and grant its permission) first, see PRINTER_SETUP.md');
-        return false;
+        return 'No paired Bluetooth device — pair the printer in '
+            'Android Settings and grant its permission (PRINTER_SETUP.md)';
       }
 
       // A fixed kiosk has exactly one printer paired ahead of time. Match by
@@ -71,10 +74,13 @@ class KioskPrinter {
       // connect() can return before the SPP socket is actually writable on
       // some printers — give it a beat before the first write.
       await Future.delayed(const Duration(milliseconds: 400));
-      return true;
+      if (await _printer.isConnected != true) {
+        return 'Connected to "${device.name}" but the link did not '
+            'come up — check it is powered on and in range';
+      }
+      return null;
     } catch (e) {
-      debugPrint('[kiosk-printer] connect failed: $e');
-      return false;
+      return 'Could not connect to printer: $e';
     } finally {
       _connecting = false;
     }
@@ -85,7 +91,10 @@ class KioskPrinter {
   /// immediately rather than waiting — what's still owed at the Collector.
   /// Kept short on purpose for the 50mm-wide, ~30mm-tall stock this kiosk
   /// uses: one line per fact, nothing decorative.
-  Future<void> printReceipt({
+  ///
+  /// Returns null on success, or a short human-readable reason it didn't
+  /// print — never throws, so the caller can show it without a try/catch.
+  Future<String?> printReceipt({
     required String controlNo,
     required String fullName,
     required String purok,
@@ -94,9 +103,10 @@ class KioskPrinter {
     required double totalDue,
   }) async {
     try {
-      if (!await _ensureConnected()) {
-        debugPrint('[kiosk-printer] no printer available — skipping auto-print');
-        return;
+      final connectError = await _ensureConnected();
+      if (connectError != null) {
+        debugPrint('[kiosk-printer] $connectError');
+        return connectError;
       }
 
       await _printer.printCustom('BARANGAY DOLOGON', _sizeMedium, _alignCenter);
@@ -142,8 +152,11 @@ class KioskPrinter {
       } catch (_) {
         // No cutter on this model — expected.
       }
+      return null;
     } catch (e) {
-      debugPrint('[kiosk-printer] print failed: $e');
+      final reason = 'Print failed: $e';
+      debugPrint('[kiosk-printer] $reason');
+      return reason;
     }
   }
 }

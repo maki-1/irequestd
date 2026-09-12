@@ -28,24 +28,33 @@ class KioskSuccessScreen extends StatefulWidget {
 
 class _KioskSuccessScreenState extends State<KioskSuccessScreen> {
   Timer? _timer;
+  // null = still printing / succeeded silently; non-null = shown on-screen.
+  // A field kiosk has no adb logcat attached, so this is the only diagnostic
+  // there is when the printer doesn't cooperate.
+  String? _printError;
+  bool _printDone = false;
 
   @override
   void initState() {
     super.initState();
     _timer = Timer(KioskConfig.successTimeout, kioskReturnToIdle);
 
-    // Fire-and-forget: the walk-in's ticket, auto-printed on the kiosk's
-    // Bluetooth thermal printer. `kioskFlow` still holds this transaction's
-    // details — nothing resets it until kioskReturnToIdle() below fires.
-    // Printing never blocks or fails this screen either way.
-    KioskPrinter.instance.printReceipt(
+    // Fire-and-forget as far as the resident-facing flow is concerned — it
+    // never blocks navigation or the idle timer above. `kioskFlow` still
+    // holds this transaction's details; nothing resets it until
+    // kioskReturnToIdle() fires.
+    KioskPrinter.instance
+        .printReceipt(
       controlNo: widget.controlNo,
       fullName: kioskFlow.fullName,
       purok: kioskFlow.purok,
       selections: List.of(kioskFlow.selections),
       orNumbers: widget.orNumbers,
       totalDue: widget.totalDue,
-    );
+    )
+        .then((error) {
+      if (mounted) setState(() { _printError = error; _printDone = true; });
+    });
   }
 
   @override
@@ -148,6 +157,30 @@ class _KioskSuccessScreenState extends State<KioskSuccessScreen> {
                         ],
                       ),
                     ),
+                    if (_printDone && _printError != null) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.print_disabled, color: Colors.white70, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Ticket not printed — please note your reference number(s) '
+                                'above.\n$_printError',
+                                style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.4),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,

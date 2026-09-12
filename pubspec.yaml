@@ -57,6 +57,15 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.3
 
+# Patched local copy of blue_thermal_printer (kiosk Bluetooth receipt
+# printing) — see third_party/blue_thermal_printer. Adds the insecure-socket
+# fallback cheap thermal printers like the XP-58H need (their SDP record is
+# too incomplete for the plugin's standard secure-socket connect to survive),
+# and a proper Android namespace the pub.dev 1.2.3 release never declared.
+dependency_overrides:
+  blue_thermal_printer:
+    path: third_party/blue_thermal_printer
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

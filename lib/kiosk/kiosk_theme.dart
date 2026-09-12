@@ -19,7 +19,6 @@ ThemeData buildKioskTheme() {
   );
   return base.copyWith(
     scaffoldBackgroundColor: KioskColors.surface,
-    textTheme: base.textTheme.apply(fontSizeFactor: 1.15),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
         minimumSize: const Size(64, 68),
