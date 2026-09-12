@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'purpose_rule.dart';
 import 'services/api_service.dart';
 import 'my_requests_screen.dart';
 
@@ -25,7 +26,7 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
     'Bank Requirements',
     'Scholarship',
     'Government Assistance',
-    'Other',
+    PurposeRule.other,
   ];
 
   static const _docIcons = {
@@ -37,6 +38,9 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   final Set<String> _selectedDocs = {};
   String? _purpose;
   final _detailsController = TextEditingController();
+  // Only used when _purpose is 'Other': what the resident types here becomes
+  // the purpose that is submitted.
+  final _otherPurposeController = TextEditingController();
   bool _isLoading = false;
 
   @override
@@ -50,14 +54,21 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
   @override
   void dispose() {
     _detailsController.dispose();
+    _otherPurposeController.dispose();
     super.dispose();
   }
 
-  bool get _canProceed => _selectedDocs.isNotEmpty && _purpose != null;
+  bool get _isOther => _purpose == PurposeRule.other;
+
+  String? get _otherPurposeError =>
+      _isOther ? PurposeRule.validateOther(_otherPurposeController.text) : null;
+
+  bool get _canProceed =>
+      _selectedDocs.isNotEmpty && _purpose != null && _otherPurposeError == null;
 
   List<Map<String, String>> get _items => _selectedDocs.map((doc) => {
         'documentType': doc,
-        'purpose': _purpose!,
+        'purpose': PurposeRule.resolve(_purpose, _otherPurposeController.text),
         'additionalDetails': _detailsController.text.trim(),
         'deliveryMethod': 'Pick up at Barangay Office',
       }).toList();
@@ -174,6 +185,33 @@ class _RequestDocumentScreenState extends State<RequestDocumentScreen> {
               items: _purposes,
               onChanged: (v) => setState(() => _purpose = v),
             ),
+            if (_isOther) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: _otherPurposeController,
+                textCapitalization: TextCapitalization.words,
+                maxLength: PurposeRule.maxChars,
+                onChanged: (_) => setState(() {}),
+                style: const TextStyle(fontSize: 14, color: Colors.black87),
+                decoration: InputDecoration(
+                  hintText: 'Specify the purpose (1-2 words)',
+                  hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
+                  helperText: 'e.g. Loan Application',
+                  helperStyle: const TextStyle(color: Colors.black45, fontSize: 11),
+                  errorText: _otherPurposeController.text.isEmpty
+                      ? null
+                      : _otherPurposeError,
+                  counterText: '',
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none),
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
 
             // ── Additional Details ────────────────────────────────────

@@ -68,6 +68,15 @@ model User {
   isVerified    Boolean  @default(false)
   avatar        String   @default("")
 
+  // Owned by the admin portal (which carries the migration, as with Admin.active):
+  // whether the resident actually entered the OTP sent at registration. The
+  // portal gates its login on this rather than on `isVerified`, which it uses for
+  // the barangay's review of the submitted documents. This backend must set it
+  // when its own register OTP passes, or a resident who signed up on the app
+  // would be refused by the portal.
+  contactVerified   Boolean   @default(false)
+  contactVerifiedAt DateTime?
+
   // Written by the admin portal's resident flow, which keeps a single in-flight
   // OTP on the user rather than using the otp_codes table the Flutter backend
   // uses. Both mechanisms coexist against the same row.

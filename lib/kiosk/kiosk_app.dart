@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'kiosk_config.dart';
 import 'kiosk_flow.dart';
@@ -45,8 +46,30 @@ class _InactivityReset extends StatefulWidget {
   State<_InactivityReset> createState() => _InactivityResetState();
 }
 
-class _InactivityResetState extends State<_InactivityReset> {
+class _InactivityResetState extends State<_InactivityReset> with WidgetsBindingObserver {
   Timer? _timer;
+
+  // Sticky immersive hides both the status and navigation bars but lets an
+  // edge swipe reveal them briefly, which Android then re-hides on its own.
+  // A kiosk has no one to reopen them deliberately, so a passing swipe should
+  // never leave the tablet showing chrome — reapplying on every lifecycle
+  // resume (e.g. after the screen was off) covers the case where Android
+  // resets it outright instead of just auto-rehiding.
+  static void _enterImmersiveMode() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _enterImmersiveMode();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _enterImmersiveMode();
+  }
 
   void _bump([_]) {
     _timer?.cancel();
@@ -59,6 +82,7 @@ class _InactivityResetState extends State<_InactivityReset> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }

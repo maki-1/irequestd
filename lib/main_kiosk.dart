@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'kiosk/kiosk_app.dart';
+import 'kiosk/kiosk_flow.dart';
+import 'kiosk/kiosk_printer.dart';
 
 /// Entry point for the walk-in kiosk build.
 ///
@@ -15,4 +18,23 @@ import 'kiosk/kiosk_app.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const KioskApp());
+
+  // TEMPORARY: printer bring-up diagnostic. Fires one receipt straight at the
+  // paired printer on launch, bypassing the backend entirely, when built with
+  // --dart-define=KIOSK_TEST_PRINT=true. Remove once the XP-58H is confirmed
+  // working end-to-end.
+  if (const bool.fromEnvironment('KIOSK_TEST_PRINT')) {
+    KioskPrinter.instance
+        .printReceipt(
+      controlNo: 'PC-TEST1',
+      fullName: 'Test Resident',
+      purok: 'Purok 1',
+      selections: [DocSelection('Barangay Clearance', 'Testing')],
+      orNumbers: ['OR-TEST-0001'],
+      totalDue: 50.0,
+    )
+        .then((error) {
+      debugPrint('[kiosk-test-print] result: ${error ?? 'OK'}');
+    });
+  }
 }

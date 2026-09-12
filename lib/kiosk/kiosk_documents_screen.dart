@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../purpose_rule.dart';
 import 'kiosk_app.dart';
 import 'kiosk_flow.dart';
 import 'kiosk_review_screen.dart';
@@ -27,7 +28,7 @@ class _KioskDocumentsScreenState extends State<KioskDocumentsScreen> {
     'Bank Requirements',
     'Scholarship',
     'Government Assistance',
-    'Other',
+    PurposeRule.other,
   ];
   static const _docIcons = {
     'Barangay Clearance': Icons.assignment_outlined,
@@ -37,22 +38,57 @@ class _KioskDocumentsScreenState extends State<KioskDocumentsScreen> {
 
   // docType -> chosen purpose (null = selected but no purpose yet).
   final Map<String, String?> _picked = {};
+  // docType -> what the resident typed after choosing 'Other'. That text, not
+  // the word 'Other', is the purpose that gets submitted.
+  final Map<String, TextEditingController> _otherCtrls = {};
 
   @override
   void initState() {
     super.initState();
     for (final s in kioskFlow.selections) {
-      _picked[s.documentType] = s.purpose.isEmpty ? null : s.purpose;
+      // A purpose coming back from the review screen is either one of the
+      // canned options or an 'Other' answer the resident already typed.
+      final known = _purposes.contains(s.purpose);
+      _picked[s.documentType] = s.purpose.isEmpty
+          ? null
+          : (known ? s.purpose : PurposeRule.other);
+      if (s.purpose.isNotEmpty && !known) {
+        _otherCtrlFor(s.documentType).text = s.purpose;
+      }
     }
   }
 
+  @override
+  void dispose() {
+    for (final c in _otherCtrls.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  TextEditingController _otherCtrlFor(String type) =>
+      _otherCtrls.putIfAbsent(type, TextEditingController.new);
+
+  /// The reason the typed 'Other' answer for [type] is not acceptable yet, or
+  /// null when the document's purpose is complete.
+  String? _otherErrorFor(String type) => _picked[type] == PurposeRule.other
+      ? PurposeRule.validateOther(_otherCtrlFor(type).text)
+      : null;
+
   bool get _canReview =>
-      _picked.isNotEmpty && _picked.values.every((p) => p != null && p.isNotEmpty);
+      _picked.isNotEmpty &&
+      _picked.keys.every((type) {
+        final purpose = _picked[type];
+        return purpose != null && purpose.isNotEmpty && _otherErrorFor(type) == null;
+      });
 
   void _toReview() {
     kioskFlow.selections
       ..clear()
-      ..addAll(_picked.entries.map((e) => DocSelection(e.key, e.value!)));
+      ..addAll(_picked.entries.map((e) => DocSelection(
+            e.key,
+            PurposeRule.resolve(e.value, _otherCtrlFor(e.key).text),
+          )));
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const KioskReviewScreen()),
     );
@@ -201,6 +237,32 @@ class _KioskDocumentsScreenState extends State<KioskDocumentsScreen> {
                   .toList(),
               onChanged: (v) => setState(() => _picked[type] = v),
             ),
+            if (_picked[type] == PurposeRule.other) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: _otherCtrlFor(type),
+                textCapitalization: TextCapitalization.words,
+                maxLength: PurposeRule.maxChars,
+                onChanged: (_) => setState(() {}),
+                style: const TextStyle(fontSize: 16, color: Colors.black87),
+                decoration: InputDecoration(
+                  hintText: 'Specify the purpose (1-2 words)',
+                  helperText: 'e.g. Loan Application',
+                  errorText: _otherCtrlFor(type).text.isEmpty
+                      ? null
+                      : _otherErrorFor(type),
+                  counterText: '',
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ],
           ],
         ],
       ),

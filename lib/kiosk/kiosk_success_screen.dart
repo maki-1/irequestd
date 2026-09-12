@@ -78,7 +78,7 @@ class _KioskSuccessScreenState extends State<KioskSuccessScreen> {
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600),
-              child: Padding(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.all(36),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,

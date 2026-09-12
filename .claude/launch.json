@@ -4,14 +4,48 @@
     {
       "name": "irequestd-flutter-web",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8090", "--directory", "build/web"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8090",
+        "--directory",
+        "build/web"
+      ],
       "port": 8090
     },
     {
       "name": "irequestd-kiosk-web",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "5174", "--directory", "build/web"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5174",
+        "--directory",
+        "build/web"
+      ],
       "port": 5174
+    },
+    {
+      "name": "irq-admin-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "D:/irqadmin/irq-admin/server",
+        "run",
+        "dev"
+      ],
+      "port": 5000
+    },
+    {
+      "name": "irq-admin-portal",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "D:/irqadmin/irq-admin/admin",
+        "run",
+        "dev"
+      ],
+      "port": 5173
     }
   ]
 }

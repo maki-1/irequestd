@@ -6,6 +6,7 @@ const { nextOrNumber } = require('../lib/orNumber');
 const { toApi } = require('../lib/serialize');
 const { isUuid } = require('../lib/ids');
 const { notifyPurokLeader } = require('../lib/purokNotify');
+const { normalizePurpose } = require('../lib/purpose');
 const { sendSms } = require('../services/sms');
 const { sendEmail } = require('../services/email');
 
@@ -92,9 +93,14 @@ router.post('/', async (req, res) => {
     if (!DELIVERY_METHODS.includes(deliveryMethod)) {
       return res.status(400).json({ message: 'Invalid delivery method' });
     }
+    // "Other" is only accepted with the resident's own 1-2 word purpose.
+    const checkedPurpose = normalizePurpose(purpose);
+    if (!checkedPurpose.ok) {
+      return res.status(400).json({ message: checkedPurpose.message });
+    }
 
     const request = await createRequest(req.user.id, {
-      documentType, purpose, additionalDetails, deliveryMethod,
+      documentType, purpose: checkedPurpose.value, additionalDetails, deliveryMethod,
     }, req.body.channel === 'kiosk' ? 'kiosk' : 'mobile');
 
     res.status(201).json(toApi(request));
@@ -163,6 +169,11 @@ router.post('/bulk', async (req, res) => {
       if (!DOCUMENT_TYPES.includes(item.documentType)) {
         return res.status(400).json({ message: `Invalid document type: ${item.documentType}` });
       }
+      const checkedPurpose = normalizePurpose(item.purpose);
+      if (!checkedPurpose.ok) {
+        return res.status(400).json({ message: checkedPurpose.message });
+      }
+      item.purpose = checkedPurpose.value;
     }
 
     // Sequential rather than parallel: each create draws the next OR number

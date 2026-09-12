@@ -321,7 +321,14 @@ router.post('/verify-otp', async (req, res) => {
     if (type === 'register') {
       const user = await prisma.user.update({
         where: { id: userId },
-        data: { isVerified: true },
+        data: {
+          isVerified: true,
+          // The admin portal gates its login on this flag, not on isVerified —
+          // the two words mean different things there. Set it here so a resident
+          // who verified on the app is not asked to verify again on the web.
+          contactVerified: true,
+          contactVerifiedAt: new Date(),
+        },
       });
       const token = generateToken(user);
       return res.json({
