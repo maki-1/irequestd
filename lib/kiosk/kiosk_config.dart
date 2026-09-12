@@ -24,4 +24,13 @@ class KioskConfig {
 
   /// The success screen returns to idle after this long.
   static const Duration successTimeout = Duration(seconds: 20);
+
+  /// Name (or a distinctive substring, case-insensitive) of the paired
+  /// Bluetooth thermal printer to auto-print tickets on — e.g. "XP-58H".
+  /// It must already be paired via Android Settings > Bluetooth before the
+  /// kiosk runs; KioskPrinter only connects to an already-bonded device, it
+  /// never scans for or pairs one itself. Empty uses whichever single device
+  /// is bonded, which is fine when the kiosk tablet is paired to exactly one
+  /// printer (the normal case).
+  static const String printerName = String.fromEnvironment('KIOSK_PRINTER_NAME');
 }

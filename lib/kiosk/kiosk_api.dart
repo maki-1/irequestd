@@ -57,6 +57,22 @@ class KioskApi {
     return _decode(res);
   }
 
+  /// GET /api/admin/prices — public, unauthenticated (same endpoint the
+  /// resident app reads). Returns { documentType: priceInPesos }, used so the
+  /// review screen can show what will still be owed after the purok clearance
+  /// covers its own fee.
+  static Future<Map<String, double>> fetchDocumentPrices() async {
+    try {
+      final res = await http.get(Uri.parse('${KioskConfig.apiBase}/admin/prices'));
+      if (res.statusCode != 200) return {};
+      final body = jsonDecode(res.body);
+      if (body is! Map) return {};
+      return body.map((k, v) => MapEntry(k as String, (v as num).toDouble()));
+    } catch (_) {
+      return {};
+    }
+  }
+
   static Map<String, dynamic> _decode(http.Response res) {
     try {
       final body = jsonDecode(res.body);

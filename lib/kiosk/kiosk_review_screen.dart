@@ -16,6 +16,19 @@ class KioskReviewScreen extends StatefulWidget {
 class _KioskReviewScreenState extends State<KioskReviewScreen> {
   bool _loading = false;
   String? _error;
+  Map<String, double> _prices = {};
+  bool _loadingPrices = true;
+
+  @override
+  void initState() {
+    super.initState();
+    KioskApi.fetchDocumentPrices().then((prices) {
+      if (mounted) setState(() { _prices = prices; _loadingPrices = false; });
+    });
+  }
+
+  double get _totalDue => kioskFlow.selections
+      .fold(0.0, (sum, s) => sum + (_prices[s.documentType] ?? 0));
 
   Future<void> _submit() async {
     setState(() {
@@ -36,11 +49,15 @@ class _KioskReviewScreenState extends State<KioskReviewScreen> {
             .where((s) => s != null && s.isNotEmpty)
             .cast<String>()
             .toList();
+        // Server-computed and authoritative — what's actually owed for these
+        // documents, separate from the purok clearance fee already settled.
+        final totalDue = (res['totalDue'] as num?)?.toDouble() ?? _totalDue;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => KioskSuccessScreen(
               controlNo: res['controlNo'] as String? ?? kioskFlow.controlNo,
               orNumbers: orNumbers,
+              totalDue: totalDue,
             ),
           ),
         );
@@ -105,6 +122,10 @@ class _KioskReviewScreenState extends State<KioskReviewScreen> {
                               ],
                             ),
                           ),
+                          if (!_loadingPrices && (_prices[s.documentType] ?? 0) > 0)
+                            Text('₱${_prices[s.documentType]!.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w800)),
                         ],
                       ),
                     ),
@@ -117,10 +138,38 @@ class _KioskReviewScreenState extends State<KioskReviewScreen> {
                       color: const Color(0xFFEDF4EC),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text(
-                      'Your purok clearance covers the fee. These requests are '
-                      'approved on submission — no online payment needed.',
-                      style: TextStyle(fontSize: 15, color: KioskColors.green, height: 1.4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Your purok clearance already covers its own fee — these '
+                          'documents are approved on submission, no waiting for the '
+                          'Purok Leader.',
+                          style: TextStyle(fontSize: 15, color: KioskColors.green, height: 1.4),
+                        ),
+                        if (!_loadingPrices && _totalDue > 0) ...[
+                          const SizedBox(height: 10),
+                          const Divider(height: 1, color: Color(0x330B3D2E)),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Amount to pay at the Collector',
+                                  style: TextStyle(
+                                      fontSize: 15, fontWeight: FontWeight.w700, color: KioskColors.green)),
+                              Text('₱${_totalDue.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                      fontSize: 20, fontWeight: FontWeight.w800, color: KioskColors.green)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'This is the document fee, separate from your purok clearance. '
+                            'Pay it in cash at the Collector\'s counter before claiming.',
+                            style: TextStyle(fontSize: 13, color: Colors.black54, height: 1.4),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   if (_error != null) ...[

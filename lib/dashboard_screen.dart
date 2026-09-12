@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
 import 'request_document_screen.dart';
 import 'my_requests_screen.dart';
 import 'settings_screen.dart';
+import 'config/barangay_links.dart';
 
 class _StatusConfig {
   final Color color;
@@ -472,19 +474,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         const SizedBox(height: 10),
                         SizedBox(
                           height: 80,
-                          child: _serviceCard(
-                            icon: Icons.inbox_outlined,
-                            label: 'My Requests',
-                            subtitle: 'Track your documents',
-                            color: const Color(0xFF7ECEF4),
-                            badge: (_summary['pending'] ?? 0) > 0
-                                ? '${_summary['pending']}'
-                                : null,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const MyRequestsScreen()),
-                            ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: _serviceCard(
+                                  icon: Icons.inbox_outlined,
+                                  label: 'My Requests',
+                                  subtitle: 'Track your documents',
+                                  color: const Color(0xFF7ECEF4),
+                                  badge: (_summary['pending'] ?? 0) > 0
+                                      ? '${_summary['pending']}'
+                                      : null,
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) => const MyRequestsScreen()),
+                                  ),
+                                ),
+                              ),
+                              if (BarangayLinks.hasFacebookPage) ...[
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _serviceCard(
+                                    icon: Icons.campaign_outlined,
+                                    label: 'Barangay Updates',
+                                    subtitle: 'News on Facebook',
+                                    color: const Color(0xFF9FC7F5),
+                                    onTap: _openFacebookPage,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                         const SizedBox(height: 24),
@@ -556,6 +576,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       bottomNavigationBar: _bottomNav(context, 0),
     );
+  }
+
+  /// Opens the barangay's Facebook page in the Facebook app when it is
+  /// installed, otherwise in a browser tab. Launched without an intervening
+  /// await so the web build treats it as a user-initiated navigation and the
+  /// popup blocker lets it through.
+  void _openFacebookPage() {
+    final uri = Uri.tryParse(BarangayLinks.facebookPage);
+    if (uri == null) return;
+    launchUrl(uri, mode: LaunchMode.externalApplication).then((ok) {
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open the Facebook page.')),
+        );
+      }
+    });
   }
 
   void _showDocumentPicker() {

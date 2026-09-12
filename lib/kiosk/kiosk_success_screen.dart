@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'kiosk_app.dart';
 import 'kiosk_config.dart';
+import 'kiosk_printer.dart';
 import 'kiosk_theme.dart';
 
 /// Final screen. Shows the OR numbers to note down, then returns to idle on its
@@ -10,10 +11,15 @@ import 'kiosk_theme.dart';
 class KioskSuccessScreen extends StatefulWidget {
   final String controlNo;
   final List<String> orNumbers;
+  /// Document fee(s) still owed — separate from the purok clearance fee,
+  /// which was already settled in cash when the clearance was issued. Zero
+  /// when every requested document happens to be free.
+  final double totalDue;
   const KioskSuccessScreen({
     super.key,
     required this.controlNo,
     required this.orNumbers,
+    this.totalDue = 0,
   });
 
   @override
@@ -27,6 +33,19 @@ class _KioskSuccessScreenState extends State<KioskSuccessScreen> {
   void initState() {
     super.initState();
     _timer = Timer(KioskConfig.successTimeout, kioskReturnToIdle);
+
+    // Fire-and-forget: the walk-in's ticket, auto-printed on the kiosk's
+    // Bluetooth thermal printer. `kioskFlow` still holds this transaction's
+    // details — nothing resets it until kioskReturnToIdle() below fires.
+    // Printing never blocks or fails this screen either way.
+    KioskPrinter.instance.printReceipt(
+      controlNo: widget.controlNo,
+      fullName: kioskFlow.fullName,
+      purok: kioskFlow.purok,
+      selections: List.of(kioskFlow.selections),
+      orNumbers: widget.orNumbers,
+      totalDue: widget.totalDue,
+    );
   }
 
   @override
@@ -65,11 +84,39 @@ class _KioskSuccessScreenState extends State<KioskSuccessScreen> {
                           fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 12),
-                    const Text(
-                      'Please wait for your name to be called at the\nreleasing window.',
+                    Text(
+                      widget.totalDue > 0
+                          ? 'Please proceed to the Collector\'s counter to pay\nbefore your documents are processed.'
+                          : 'Please wait for your name to be called at the\nreleasing window.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white70, fontSize: 18, height: 1.5),
+                      style: const TextStyle(color: Colors.white70, fontSize: 18, height: 1.5),
                     ),
+                    if (widget.totalDue > 0) ...[
+                      const SizedBox(height: 18),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                        decoration: BoxDecoration(
+                          color: KioskColors.gold,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Pay at Collector',
+                                style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: KioskColors.greenDark)),
+                            Text('₱${widget.totalDue.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                    color: KioskColors.greenDark)),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 28),
                     Container(
                       width: double.infinity,
