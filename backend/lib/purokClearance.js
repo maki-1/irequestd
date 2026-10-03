@@ -1,3 +1,4 @@
+const { isAccountActive } = require('./accountLifecycle');
 const crypto = require('crypto');
 const prisma = require('./prisma');
 
@@ -97,6 +98,15 @@ async function verifyClearance({ controlNo, birthday, surname }, client = prisma
       reason: 'mismatch',
       message: 'The details do not match this clearance.',
     };
+  }
+
+  if (clearance.userId) {
+    const account = await client.user.findUnique({
+      where: { id: clearance.userId }, select: { active: true, deletedAt: true },
+    });
+    if (!isAccountActive(account)) {
+      return { ok: false, reason: 'account_disabled', message: 'This account is disabled. Please contact the barangay office.' };
+    }
   }
 
   return { ok: true, clearance };

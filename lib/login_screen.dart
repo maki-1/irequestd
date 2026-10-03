@@ -5,7 +5,6 @@ import 'otp_screen.dart';
 import 'forgot_password_screen.dart';
 import 'services/api_service.dart';
 import 'verification/demographic_screen.dart';
-import 'verification/education_screen.dart';
 import 'verification/id_verification_screen.dart';
 import 'verification/verification_waiting_screen.dart';
 
@@ -89,10 +88,8 @@ class _LoginScreenState extends State<LoginScreen> {
       destination = const VerificationWaitingScreen();
     } else if (verificationStatus == 'draft' || verificationStatus == null) {
       // Route to whichever step they left off at
-      if (step >= 3) {
+      if (step >= 2) {
         destination = const IdVerificationScreen();
-      } else if (step >= 2) {
-        destination = const EducationScreen();
       } else {
         destination = const DemographicScreen();
       }

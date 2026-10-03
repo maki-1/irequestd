@@ -249,7 +249,6 @@ class _VerificationWaitingScreenState
                           color: Colors.black87)),
                   const SizedBox(height: 12),
                   _submittedItem('Demographic Profile'),
-                  _submittedItem('Educational Attainment'),
                   _submittedItem('ID Documents'),
                   _submittedItem('Face Recognition'),
                 ],

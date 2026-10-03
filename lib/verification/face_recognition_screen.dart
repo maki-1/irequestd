@@ -531,7 +531,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen>
                 ),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 20),
-                  child: StepProgressBar(currentStep: 4),
+                  child: StepProgressBar(currentStep: 3),
                 ),
 
                 const Spacer(),

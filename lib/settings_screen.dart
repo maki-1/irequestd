@@ -49,6 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       final active = (summary['pending'] as int? ?? 0) +
           (summary['processing'] as int? ?? 0) +
+          (summary['printing'] as int? ?? 0) +
           (summary['ready'] as int? ?? 0);
       setState(() => _notifCount = active);
     } catch (_) {}
@@ -547,12 +548,17 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
     setState(() => _loading = false);
 
     if (res['statusCode'] == 200) {
-      Navigator.pop(context);
+      await ApiService.clearSession();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Password changed successfully!'),
+        content: Text('Password changed. Please sign in again.'),
         backgroundColor: _green,
         behavior: SnackBarBehavior.floating,
       ));
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
     } else {
       _showSnack(res['message'] as String? ?? 'Failed to change password');
     }

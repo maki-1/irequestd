@@ -41,7 +41,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isPwd = false;
   int _age = 0;
   Map<String, dynamic> _summary = {
-    'total': 0, 'pending': 0, 'processing': 0, 'ready': 0, 'rejected': 0
+    'total': 0, 'pending': 0, 'processing': 0, 'printing': 0, 'ready': 0, 'claimed': 0, 'rejected': 0
   };
   List<dynamic> _requests = [];
   List<dynamic> _readyForPickup = [];
@@ -186,7 +186,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final results = await Future.wait([
         ApiService.fetchSummary(),
         ApiService.fetchRequests(),
-        ApiService.fetchCompletedDocuments(),
         ApiService.fetchClaimedDocuments(),
       ]);
       if (!mounted) return;
@@ -204,13 +203,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _age = (user?['age'] as num?)?.toInt() ?? 0;
         _summary = results[0] as Map<String, dynamic>;
         _requests = results[1] as List<dynamic>;
-        _readyForPickup = results[2] as List<dynamic>;
-        _claimedDocuments = results[3] as List<dynamic>;
+        // The pickup count and documents come from one database snapshot.
+        _readyForPickup = _summary['readyDocuments'] as List<dynamic>;
+        _claimedDocuments = results[2] as List<dynamic>;
         _loading = false;
       });
       await _fireOsNotifications(
-        pickup: results[2] as List<dynamic>,
-        claimed: results[3] as List<dynamic>,
+        pickup: _readyForPickup,
+        claimed: _claimedDocuments,
         requests: results[1] as List<dynamic>,
       );
       await _checkAndShowWelcome();
@@ -347,8 +347,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'Ready': return Colors.green;
+      case 'Ready for Pickup': return Colors.green;
       case 'Processing': return Colors.orange;
+      case 'Printing': return Colors.deepPurple;
+      case 'Claimed': return Colors.teal;
       case 'Rejected': return Colors.red;
       default: return Colors.grey;
     }

@@ -112,8 +112,10 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'Ready': return Colors.green;
+      case 'Ready for Pickup': return Colors.green;
       case 'Processing': return Colors.orange;
+      case 'Printing': return Colors.deepPurple;
+      case 'Claimed': return Colors.teal;
       case 'Rejected': return Colors.red;
       default: return Colors.grey;
     }
@@ -121,8 +123,10 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
 
   IconData _statusIcon(String status) {
     switch (status) {
-      case 'Ready': return Icons.check_circle_outline;
+      case 'Ready for Pickup': return Icons.check_circle_outline;
       case 'Processing': return Icons.hourglass_empty_rounded;
+      case 'Printing': return Icons.print_outlined;
+      case 'Claimed': return Icons.task_alt;
       case 'Rejected': return Icons.cancel_outlined;
       default: return Icons.schedule_outlined;
     }
@@ -133,14 +137,6 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
       case 'approved': return Colors.green;
       case 'rejected': return Colors.red;
       default: return Colors.orange;
-    }
-  }
-
-  IconData _purokStatusIcon(String s) {
-    switch (s.toLowerCase()) {
-      case 'approved': return Icons.verified_outlined;
-      case 'rejected': return Icons.cancel_outlined;
-      default: return Icons.hourglass_empty_rounded;
     }
   }
 
@@ -489,7 +485,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                       Icon(Icons.storefront_outlined,
                           size: 12, color: Colors.green),
                       SizedBox(width: 4),
-                      Text('Ready',
+                      Text('Ready for Pickup',
                           style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
@@ -603,7 +599,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
     // Approved and payment still needed
     final needsPayment = purokLeaderStatus == 'approved' && paymentStatus == 'unpaid';
     // Fully paid, normal document status flow
-    final isPaid = paymentStatus == 'paid';
+    final isPaid = paymentStatus == 'paid' || paymentStatus == 'free';
 
     Color color;
     if (awaitingApproval) {
@@ -686,22 +682,12 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          needsPayment
-                              ? Icons.payment_outlined
-                              : isPaid
-                                  ? _statusIcon(status)
-                                  : _purokStatusIcon(purokLeaderStatus),
+                          _statusIcon(status),
                           size: 13, color: color,
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          needsPayment
-                              ? 'Pay Now'
-                              : isPaid
-                                  ? status
-                                  : purokLeaderStatus == 'pending'
-                                      ? 'Awaiting Approval'
-                                      : 'Purok Rejected',
+                          status,
                           style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,

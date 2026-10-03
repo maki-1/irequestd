@@ -7,7 +7,7 @@ import '../login_screen.dart';
 import '../services/api_service.dart';
 import '../services/llama_service.dart';
 import 'step_progress_bar.dart';
-import 'education_screen.dart';
+import 'id_verification_screen.dart';
 
 class DemographicScreen extends StatefulWidget {
   const DemographicScreen({super.key});
@@ -53,8 +53,6 @@ class _DemographicScreenState extends State<DemographicScreen> {
   final _fullNameController = TextEditingController();
   final _houseStreetController = TextEditingController();
   final _yearsAtAddressController = TextEditingController();
-  final _motherNameController = TextEditingController();
-  final _fatherNameController = TextEditingController();
   final _indigentOtherController = TextEditingController();
   final _ethnicGroupController = TextEditingController();
 
@@ -123,8 +121,6 @@ class _DemographicScreenState extends State<DemographicScreen> {
     _fullNameController.dispose();
     _houseStreetController.dispose();
     _yearsAtAddressController.dispose();
-    _motherNameController.dispose();
-    _fatherNameController.dispose();
     _indigentOtherController.dispose();
     _ethnicGroupController.dispose();
     super.dispose();
@@ -203,11 +199,10 @@ class _DemographicScreenState extends State<DemographicScreen> {
         {
           'fullName': _fullNameController.text.trim(),
           'address': address,
+          'purok': _selectedPurok,
           'birthday': birthday,
           'sex': _sex!,
           'yearsOfResidency': _yearsAtAddressController.text.trim(),
-          'motherName': _motherNameController.text.trim(),
-          'fatherName': _fatherNameController.text.trim(),
           'isPwd': _pwdStatus == 'Yes',
           'isSoloParent': _soloParentStatus == 'Yes',
           'isIndigenousPeople': _indigenousStatus == 'Yes',
@@ -228,7 +223,7 @@ class _DemographicScreenState extends State<DemographicScreen> {
       if (result['statusCode'] == 200) {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const EducationScreen()),
+          MaterialPageRoute(builder: (_) => const IdVerificationScreen()),
         );
       } else {
         _showError(result['message'] as String? ?? 'Failed to save');
@@ -752,44 +747,6 @@ class _DemographicScreenState extends State<DemographicScreen> {
                   _buildProofUpload(),
                   const SizedBox(height: 14),
                 ],
-
-                // ── Mother's Name ─────────────────────────────────────
-                _label("Full Mother's Maiden Name", isRequired: true),
-                _textField(
-                  controller: _motherNameController,
-                  hint: 'Full name',
-                  maxLength: 100,
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Required';
-                    if (!RegExp(r"^[a-zA-Z\s.'-]{2,}$").hasMatch(v.trim()))
-                      return 'Letters and spaces only';
-                    return null;
-                  },
-                  formatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r"[a-zA-Z\s.'-]")),
-                    LengthLimitingTextInputFormatter(100),
-                  ],
-                ),
-                const SizedBox(height: 14),
-
-                // ── Father's Name ─────────────────────────────────────
-                _label("Father's Full Name", isRequired: true),
-                _textField(
-                  controller: _fatherNameController,
-                  hint: 'Full name',
-                  maxLength: 100,
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Required';
-                    if (!RegExp(r"^[a-zA-Z\s.'-]{2,}$").hasMatch(v.trim()))
-                      return 'Letters and spaces only';
-                    return null;
-                  },
-                  formatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r"[a-zA-Z\s.'-]")),
-                    LengthLimitingTextInputFormatter(100),
-                  ],
-                ),
-                const SizedBox(height: 24),
 
                 // ── Terms & Data Privacy ──────────────────────────────
                 Container(

@@ -51,13 +51,13 @@ router.get('/status', async (req, res) => {
 router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, res) => {
   try {
     const {
-      fullName, address, purok, birthday, sex, indigent, yearsOfResidency, motherName, fatherName, isPwd,
+      fullName, address, purok, birthday, sex, indigent, yearsOfResidency, isPwd,
       isSoloParent, isIndigenousPeople, isPregnant, isNonResident, ethnicGroup,
     } = req.body;
 
     const asBool = (v) => v === true || v === 'true';
 
-    if (!fullName || !address || !birthday || !sex || !indigent || !yearsOfResidency || !motherName || !fatherName) {
+    if (!fullName || !address || !birthday || !sex || !indigent || !yearsOfResidency) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
@@ -93,15 +93,14 @@ router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, r
       gender: sex.trim(),
       indigent: indigent.trim(),
       yearsOfResidency,
-      motherName: motherName.trim(),
-      fatherName: fatherName.trim(),
       isPwd: asBool(isPwd),
       isSoloParent: asBool(isSoloParent),
       isIndigenousPeople: asBool(isIndigenousPeople),
       isPregnant: asBool(isPregnant),
       isNonResident: asBool(isNonResident),
       ethnicGroup: ethnicGroup?.trim() || null,
-      currentStep: 2,
+      // Keep the stored ID-stage value so existing app versions can resume.
+      currentStep: 3,
     };
 
     if (req.file) updateData.freeProofDocument = req.file.path;
@@ -120,37 +119,17 @@ router.post('/step1', uploadFreeProof.single('freeDocumentProof'), async (req, r
 });
 
 // ── POST /api/verification/step2 ──────────────────────────────────────────────
-const step2Upload = uploadIdDoc.single('educationCertificate');
-
-router.post('/step2', (req, res) => {
-  step2Upload(req, res, async (err) => {
-    if (err) return res.status(400).json({ message: err.message });
-
-    try {
-      const { educationLevel, school, yearGraduated, course } = req.body;
-
-      const updateData = {
-        educationLevel: educationLevel || '',
-        school: school || '',
-        yearGraduated: yearGraduated || '',
-        course: course || '',
-        currentStep: 3,
-        status: 'pending',
-        submittedAt: new Date(),
-      };
-
-      if (req.file) updateData.educationCertificate = req.file.path;
-
-      const profile = await updateProfile(req.user.id, updateData);
-
-      if (!profile) return res.status(400).json({ message: 'Complete Step 1 first' });
-
-      res.json({ message: 'Step 2 saved', currentStep: profile.currentStep });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: 'Server error' });
-    }
-  });
+router.post('/step2', async (req, res) => {
+  // Older app versions may still call this endpoint. Do not collect education
+  // or mark an application pending before ID and face submission.
+  try {
+    const profile = await prisma.verificationProfile.findUnique({ where: { userId: req.user.id } });
+    if (!profile) return res.status(400).json({ message: 'Complete your personal information first' });
+    res.json({ message: 'Continue to ID verification', currentStep: profile.currentStep });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // IDs that have no back side — back upload is optional for these

@@ -1,6 +1,9 @@
+const { shapeRequest } = require('../lib/requestStatus');
+const { transitionRequest } = require('../lib/requestWorkflow');
 const express = require('express');
 const router  = express.Router();
-const jwt     = require('jsonwebtoken');
+const { signToken, requireActive } = require('../lib/accountLifecycle');
+const adminAuth = require('../middleware/adminAuth');
 const prisma  = require('../lib/prisma');
 const { comparePassword, hashPassword } = require('../lib/password');
 const { toApi } = require('../lib/serialize');
@@ -18,19 +21,6 @@ const USER_SUMMARY = {
 };
 
 // ── Admin auth middleware ─────────────────────────────────────────────────────
-function adminAuth(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer '))
-    return res.status(401).json({ message: 'No token' });
-  try {
-    const decoded = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET);
-    if (!decoded.isAdmin) return res.status(403).json({ message: 'Not an admin' });
-    req.admin = decoded;
-    next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
-  }
-}
 
 // ── POST /api/admin/setup  (creates first admin; disabled once one exists) ────
 // The `admins` table is shared with the admin portal, which identifies staff by
@@ -77,11 +67,8 @@ router.post('/login', async (req, res) => {
     const ok = await comparePassword(password, admin.password);
     if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
 
-    const token = jwt.sign(
-      { id: admin.id, email: admin.email, name: admin.fullName, role: admin.role, isAdmin: true },
-      process.env.JWT_SECRET,
-      { expiresIn: '8h' }
-    );
+    if (!requireActive(admin, res)) return;
+    const token = signToken(admin, 'staff');
     res.json({ token, name: admin.fullName, role: admin.role });
   } catch (err) {
     console.error(err);
@@ -250,22 +237,10 @@ router.put('/applications/:id/reject', async (req, res) => {
 // ── PUT /api/admin/requests/:id/status ────────────────────────────────────────
 router.put('/requests/:id/status', async (req, res) => {
   try {
-    const { status } = req.body;
-    const allowed = ['Pending', 'Processing', 'Ready', 'Rejected'];
-    if (!allowed.includes(status))
-      return res.status(400).json({ message: 'Invalid status' });
     if (!isUuid(req.params.id)) return res.status(404).json({ message: 'Not found' });
-
-    const { count } = await prisma.request.updateMany({
-      where: { id: req.params.id },
-      data: { status },
-    });
-    if (count === 0) return res.status(404).json({ message: 'Not found' });
-    res.json({ message: 'Status updated', status });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
+    const { request } = await transitionRequest(prisma, req.params.id, req.body.status);
+    res.json({ message: 'Status updated', status: shapeRequest(request).status });
+  } catch (err) { res.status(err.status || 500).json({ message: err.message }); }
 });
 
 // ── GET /api/admin/requests ───────────────────────────────────────────────────
@@ -280,7 +255,7 @@ router.get('/requests', async (req, res) => {
     const [requests, total] = await Promise.all([
       prisma.request.findMany({
         where,
-        include: { user: { select: { id: true, username: true, contactNumber: true, email: true } } },
+        include: { completedDocuments: true, user: { select: { id: true, username: true, contactNumber: true, email: true } } },
         orderBy: { createdAt: 'desc' },
         skip,
         take: parseInt(limit),
@@ -288,7 +263,7 @@ router.get('/requests', async (req, res) => {
       prisma.request.count({ where }),
     ]);
 
-    res.json({ requests: toApi(requests), total, page: parseInt(page), limit: parseInt(limit) });
+    res.json({ requests: toApi(requests.map(shapeRequest)), total, page: parseInt(page), limit: parseInt(limit) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

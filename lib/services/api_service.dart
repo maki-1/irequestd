@@ -251,24 +251,6 @@ class ApiService {
     return {'statusCode': res.statusCode, ...body};
   }
 
-  static Future<Map<String, dynamic>> submitStep2(
-      Map<String, dynamic> data, String? certPath) async {
-    final token = await getToken();
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$_baseUrl/verification/step2'),
-    );
-    if (token != null) request.headers['Authorization'] = 'Bearer $token';
-    data.forEach((k, v) => request.fields[k] = v?.toString() ?? '');
-    if (certPath != null && certPath.isNotEmpty) {
-      request.files.add(await http.MultipartFile.fromPath('educationCertificate', certPath));
-    }
-    final streamed = await request.send();
-    final res = await http.Response.fromStream(streamed);
-    final body = jsonDecode(res.body) as Map<String, dynamic>;
-    return {'statusCode': res.statusCode, ...body};
-  }
-
   static Future<Map<String, dynamic>> submitStep3({
     required String idType,
     required String idName,

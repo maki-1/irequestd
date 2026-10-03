@@ -1,3 +1,4 @@
+const { STATUS, shapeRequest, residentDocuments, residentSummary } = require('../lib/requestStatus');
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
@@ -52,9 +53,10 @@ router.get('/', async (req, res) => {
   try {
     const requests = await prisma.request.findMany({
       where: { userId: req.user.id },
+      include: { completedDocuments: true },
       orderBy: { createdAt: 'desc' },
     });
-    res.json(toApi(requests));
+    res.json(toApi(requests.map(shapeRequest)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -64,15 +66,7 @@ router.get('/', async (req, res) => {
 // GET /api/requests/summary
 router.get('/summary', async (req, res) => {
   try {
-    const userId = req.user.id;
-    const [total, pending, processing, ready, rejected] = await Promise.all([
-      prisma.request.count({ where: { userId } }),
-      prisma.request.count({ where: { userId, status: 'Pending' } }),
-      prisma.request.count({ where: { userId, status: 'Processing' } }),
-      prisma.request.count({ where: { userId, status: 'Ready' } }),
-      prisma.request.count({ where: { userId, status: 'Rejected' } }),
-    ]);
-    res.json({ total, pending, processing, ready, rejected });
+    res.json(toApi(await residentSummary(prisma, req.user.id)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -115,42 +109,18 @@ router.post('/', async (req, res) => {
 // Returns docs from completed_documents where user matches and claimStatus = 'Pending'
 router.get('/completed', async (req, res) => {
   try {
-    const docs = await prisma.completedDocument.findMany({
-      where: {
-        userId: req.user.id,
-        // case-insensitive, matching the old /^pending$/i
-        claimStatus: { equals: 'pending', mode: 'insensitive' },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json(toApi(docs));
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
+    const docs = await residentDocuments(prisma, req.user.id);
+    res.json(toApi(docs.filter((doc) => doc.status === STATUS.ready)));
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // GET /api/requests/claimed
 // Returns docs where claimStatus is claimed/complete/completed (already picked up)
 router.get('/claimed', async (req, res) => {
   try {
-    const docs = await prisma.completedDocument.findMany({
-      where: {
-        userId: req.user.id,
-        // was /^(claimed|complete|completed)$/i
-        OR: [
-          { claimStatus: { equals: 'claimed', mode: 'insensitive' } },
-          { claimStatus: { equals: 'complete', mode: 'insensitive' } },
-          { claimStatus: { equals: 'completed', mode: 'insensitive' } },
-        ],
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    res.json(toApi(docs));
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
+    const docs = await residentDocuments(prisma, req.user.id);
+    res.json(toApi(docs.filter((doc) => doc.status === STATUS.claimed)));
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // POST /api/requests/bulk  (multi-doc submission)

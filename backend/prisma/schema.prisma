@@ -36,10 +36,9 @@ enum OtpType {
 // need @map plus a key translation on every read and write. The route handlers
 // validate them instead, exactly as the Mongoose enums did.
 
-// `Request.status` is a plain string, not an enum: the Flutter backend uses
-// Pending/Processing/Ready/Rejected, while the admin portal additionally writes
-// 'Completed' and 'Claimed' when a document is released. Both write to the same
-// column, so it has to accept the union of the two vocabularies.
+// Request.status remains text for imported legacy values. Both services expose
+// Pending / Processing / Printing / Ready for Pickup / Claimed / Rejected
+// through lib/requestStatus.js. Actual release records determine pickup readiness.
 
 // Request.paymentStatus is a plain string: the Flutter backend writes
 // unpaid/paid, and the admin portal's free-request flow writes 'free'.
@@ -106,6 +105,11 @@ model User {
   purokClearances     PurokClearance[]
   verificationProfile VerificationProfile?
 
+  active         Boolean @default(true)
+  deletedAt      DateTime?
+  sessionVersion Int @default(0)
+  otpAttempts    Int @default(0)
+
   @@map("users")
 }
 
@@ -135,6 +139,7 @@ model Admin {
   // admin portal. This backend doesn't manage staff, but the column is mirrored
   // so its Prisma client matches the shared schema.
   active        Boolean  @default(true)
+  sessionVersion Int @default(0)
   oauthProvider String?
   oauthId       String?
   createdAt     DateTime @default(now())
@@ -359,8 +364,8 @@ model Request {
   additionalDetails String            @default("")
   // Defaulted because the portal's free-request flow does not set it.
   deliveryMethod    String            @default("Pick up at Barangay Office")
-  // 'Pending' | 'Processing' | 'Ready' | 'Rejected' (Flutter backend)
-  // plus 'Completed' | 'Claimed' (admin portal, on release)
+  // Pending | Processing | Printing | Ready for Pickup | Claimed | Rejected.
+  // Legacy Ready/Completed values are normalized using completedDocuments.
   status            String            @default("Pending")
   // 'unpaid' | 'paid', plus 'free' from the portal's free-request flow
   paymentStatus     String            @default("unpaid")

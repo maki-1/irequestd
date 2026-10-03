@@ -70,7 +70,14 @@ class KioskPrinter {
               orElse: () => bonded.first,
             );
 
-      await _printer.connect(device);
+      // The underlying BluetoothSocket.connect() has no OS-level timeout of
+      // its own — if the printer is off, out of range, or just doesn't
+      // respond, this await can hang indefinitely, which would leave
+      // `_connecting` stuck true and jam every print attempt after it.
+      await _printer.connect(device).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => throw Exception('Timed out connecting to printer'),
+      );
       // connect() can return before the SPP socket is actually writable on
       // some printers — give it a beat before the first write.
       await Future.delayed(const Duration(milliseconds: 400));

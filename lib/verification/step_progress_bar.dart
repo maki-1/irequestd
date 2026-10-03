@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 
 class StepProgressBar extends StatelessWidget {
-  final int currentStep; // 1, 2, 3, or 4
+  final int currentStep; // Profile, ID, or Face (1-3)
 
   const StepProgressBar({super.key, required this.currentStep});
 
-  static const _labels = ['Profile', 'Education', 'ID', 'Face'];
+  static const _labels = ['Profile', 'ID', 'Face'];
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: List.generate(4, (i) {
+      children: List.generate(_labels.length, (i) {
         final step = i + 1;
         final isDone = step < currentStep;
         final isActive = step == currentStep;
@@ -65,7 +65,7 @@ class StepProgressBar extends StatelessWidget {
                   ),
                   // Right half-connector (hidden for last step)
                   Expanded(
-                    child: step == 4
+                    child: step == _labels.length
                         ? const SizedBox()
                         : Container(
                             height: 2,

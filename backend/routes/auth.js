@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
+const { signToken, verifyToken, requireActive, requireSession, isAccountActive, changeResidentPassword, revoked } = require('../lib/accountLifecycle');
 const prisma = require('../lib/prisma');
 const { hashPassword, comparePassword } = require('../lib/password');
 const { isUuid } = require('../lib/ids');
@@ -8,13 +8,7 @@ const { sendOtp, sendPasswordResetOtp } = require('../services/sms');
 const { sendOtpEmail } = require('../services/email');
 const { uploadAvatar } = require('../config/cloudinary');
 
-function generateToken(user) {
-  return jwt.sign(
-    { id: user.id, username: user.username },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN }
-  );
-}
+const generateToken = (user) => signToken(user, 'resident');
 
 function generateOtpCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -159,12 +153,10 @@ router.put('/change-password', authMiddleware, async (req, res) => {
     const match = await comparePassword(currentPassword, user.password);
     if (!match) return res.status(401).json({ message: 'Current password is incorrect' });
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { password: await hashPassword(newPassword) },
-    });
+    const changed = await changeResidentPassword(prisma, req.user, await hashPassword(newPassword));
+    if (!changed) return res.status(401).json(revoked);
 
-    res.json({ message: 'Password changed successfully' });
+    res.json({ message: 'Password changed successfully. Please sign in again.', sessionsRevoked: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -296,6 +288,11 @@ router.post('/verify-otp', async (req, res) => {
       return res.status(400).json({ message: 'OTP expired or not found. Please request a new one.' });
     }
 
+    if (!['register', 'reset'].includes(type)) return res.status(400).json({ message: 'Invalid OTP type' });
+    const account = await prisma.user.findUnique({ where: { id: userId } });
+    if (!account) return res.status(404).json({ message: 'User not found' });
+    if (!requireActive(account, res)) return;
+
     const otpRecord = await prisma.otpCode.findFirst({
       where: {
         userId,
@@ -315,21 +312,28 @@ router.post('/verify-otp', async (req, res) => {
       return res.status(400).json({ message: 'Invalid OTP. Please try again.' });
     }
 
-    // Mark OTP as used
-    await prisma.otpCode.update({ where: { id: otpRecord.id }, data: { used: true } });
+    const user = await prisma.$transaction(async (tx) => {
+      // Lock the account version before consuming the code. A concurrent
+      // deactivation or password reset makes this challenge stale.
+      const current = await tx.user.updateMany({
+        where: { id: userId, active: true, deletedAt: null, sessionVersion: account.sessionVersion },
+        data: { sessionVersion: account.sessionVersion },
+      });
+      if (!current.count) return null;
+      const consumed = await tx.otpCode.updateMany({
+        where: { id: otpRecord.id, used: false, expiresAt: { gt: new Date() } },
+        data: { used: true },
+      });
+      if (!consumed.count) return null;
+      if (type === 'reset') return account;
+      return tx.user.update({
+        where: { id: userId },
+        data: { isVerified: true, contactVerified: true, contactVerifiedAt: new Date() },
+      });
+    });
+    if (!user) return res.status(400).json({ message: 'Code expired or account changed. Request a new code.' });
 
     if (type === 'register') {
-      const user = await prisma.user.update({
-        where: { id: userId },
-        data: {
-          isVerified: true,
-          // The admin portal gates its login on this flag, not on isVerified —
-          // the two words mean different things there. Set it here so a resident
-          // who verified on the app is not asked to verify again on the web.
-          contactVerified: true,
-          contactVerifiedAt: new Date(),
-        },
-      });
       const token = generateToken(user);
       return res.json({
         token,
@@ -347,11 +351,7 @@ router.post('/verify-otp', async (req, res) => {
 
     if (type === 'reset') {
       // Issue a short-lived reset token
-      const resetToken = jwt.sign(
-        { id: userId, purpose: 'reset' },
-        process.env.JWT_SECRET,
-        { expiresIn: '15m' }
-      );
+      const resetToken = signToken(user, 'resident', 'reset');
       return res.json({ resetToken });
     }
   } catch (err) {
@@ -372,6 +372,8 @@ router.post('/resend-otp', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    if (!requireActive(user, res)) return;
+    if (!['register', 'reset'].includes(type)) return res.status(400).json({ message: 'Invalid OTP type' });
     await createAndSendOtp(user.id, user.contactNumber, type);
 
     res.json({ message: 'OTP resent successfully' });
@@ -404,7 +406,8 @@ router.post('/login', async (req, res) => {
     }
 
     // Account not yet verified — resend OTP
-    if (!user.isVerified) {
+    if (!requireActive(user, res)) return;
+    if (!user.contactVerified) {
       await createAndSendOtp(user.id, user.contactNumber, 'register');
       return res.status(403).json({
         message: 'Account not verified. OTP has been resent.',
@@ -456,7 +459,7 @@ router.post('/forgot-password', async (req, res) => {
       },
     });
 
-    if (!user) {
+    if (!isAccountActive(user)) {
       // Don't reveal if user exists
       return res.json({ message: 'If that account exists, an OTP has been sent.' });
     }
@@ -519,14 +522,11 @@ router.post('/reset-password', async (req, res) => {
 
     let decoded;
     try {
-      decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+      decoded = verifyToken(resetToken, 'resident', 'reset');
     } catch {
       return res.status(401).json({ message: 'Reset token is invalid or expired' });
     }
 
-    if (decoded.purpose !== 'reset') {
-      return res.status(401).json({ message: 'Invalid reset token' });
-    }
     if (!isUuid(decoded.id)) return res.status(404).json({ message: 'User not found' });
 
     const user = await prisma.user.findUnique({ where: { id: decoded.id } });
@@ -534,12 +534,11 @@ router.post('/reset-password', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { password: await hashPassword(newPassword) },
-    });
+    if (!requireSession(user, decoded, res)) return;
+    const changed = await changeResidentPassword(prisma, user, await hashPassword(newPassword));
+    if (!changed) return res.status(401).json(revoked);
 
-    res.json({ message: 'Password reset successfully' });
+    res.json({ message: 'Password reset successfully. Please sign in again.', sessionsRevoked: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

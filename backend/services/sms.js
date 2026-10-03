@@ -9,6 +9,7 @@ function toE164(phone) {
 }
 
 async function sendSms(to, message) {
+  if (!process.env.UNISMS_SENDER_ID) throw new Error('UNISMS_SENDER_ID is not configured — SMS cannot be sent');
   const credentials = Buffer.from(`${process.env.UNISMS_API_KEY}:`).toString('base64');
 
   const response = await axios.post(
@@ -19,6 +20,7 @@ async function sendSms(to, message) {
       ...(process.env.UNISMS_SENDER_ID ? { sender_id: process.env.UNISMS_SENDER_ID } : {}),
     },
     {
+      timeout: 10000,
       headers: {
         Authorization: `Basic ${credentials}`,
         'Content-Type': 'application/json',

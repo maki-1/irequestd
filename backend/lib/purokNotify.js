@@ -1,137 +1,80 @@
 const prisma = require('./prisma');
+const { buildLink, portalUrl } = require('./approveLink');
+const { notificationContact } = require('./notificationContact');
 
-/**
- * Tells a Purok Leader that a request is waiting for their approval.
- *
- * Nothing did this before: a leader only discovered pending requests by logging
- * in and looking. That is tolerable when approval can wait days, and useless
- * when a resident is standing at the kiosk.
- *
- * Three channels, best-effort and independent — one failing does not stop the
- * others, and none of them can fail the request that triggered them. Delivery
- * is deliberately fire-and-forget: a resident must never see a request rejected
- * because an SMS gateway was down.
- */
-
-// Finds the Purok Leader account responsible for a purok.
-async function findPurokLeader(purok, client = prisma) {
-  if (!purok) return null;
-  return client.admin.findFirst({
-    where: {
-      role: 'Purok Leader',
-      purok: { equals: String(purok).trim(), mode: 'insensitive' },
-    },
+async function findPurokLeaders(purok, client = prisma) {
+  if (!String(purok || '').trim()) return [];
+  return client.admin.findMany({
+    where: { role: 'Purok Leader', active: true, purok: { equals: String(purok).trim(), mode: 'insensitive' } },
+    select: { id: true, fullName: true, contactNumber: true, notifyEmail: true, sessionVersion: true },
+    orderBy: { id: 'asc' },
   });
 }
 
-function buildMessage({ leaderName, residentName, purok, documentTypes, atCounter }) {
-  const docs = documentTypes.length === 1 ? documentTypes[0] : `${documentTypes.length} documents`;
-  const urgency = atCounter
-    ? ' The resident is waiting at the barangay office.'
-    : '';
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+
+function buildMessage({ leaderName, residentName, purok, documentTypes, atCounter, approveLink, portal }) {
+  const docs = documentTypes.length === 1 ? documentTypes[0] : documentTypes.length + ' documents';
+  const sms = 'Hi ' + leaderName + ', ' + residentName + ' of ' + purok + ' is requesting ' + docs + ' and needs your purok clearance approval.' +
+    (atCounter ? ' The resident is waiting at the barangay office.' : '') +
+    ' Please review it in the iRequestDologon portal. -Brgy. Dologon';
+  const review = approveLink || (portal ? portal + '/login' : null);
   return {
-    sms:
-      `Hi ${leaderName}, ${residentName} of ${purok} is requesting ${docs} and needs your purok clearance approval.` +
-      `${urgency} Please review it in the iRequestDologon portal. -Brgy. Dologon`,
-    subject: atCounter
-      ? `Resident waiting at the office — approval needed (${purok})`
-      : `Purok clearance approval needed (${purok})`,
-    html: `
-      <p>Dear <strong>${leaderName}</strong>,</p>
-      <p><strong>${residentName}</strong> of <strong>${purok}</strong> has requested
-      <strong>${docs}</strong> and is waiting on your purok clearance approval.</p>
-      ${atCounter
-        ? '<p style="color:#A32B1E"><strong>This request was made at the barangay office and the resident is waiting.</strong></p>'
-        : ''}
-      <p>Please open the iRequestDologon portal to review and approve it.</p>
-      <p style="color:#888;font-size:12px">Barangay Dologon &ndash; iRequestDologon</p>`,
+    sms,
+    subject: (atCounter ? 'Resident waiting at the office ? approval needed (' : 'Purok clearance approval needed (') + purok + ')',
+    text: sms + (review ? '\n' + (approveLink ? 'Review and approve' : 'Sign in to review') + ': ' + review : ''),
+    html: '<p>Dear <strong>' + escapeHtml(leaderName) + '</strong>,</p>' +
+      '<p><strong>' + escapeHtml(residentName) + '</strong> of <strong>' + escapeHtml(purok) + '</strong> has requested ' +
+      '<strong>' + escapeHtml(docs) + '</strong> and is waiting on your purok clearance approval.</p>' +
+      (atCounter ? '<p><strong>This request was made at the barangay office and the resident is waiting.</strong></p>' : '') +
+      (review ? '<p><a href="' + escapeHtml(review) + '" style="display:inline-block;background:#156D07;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:700">' +
+        (approveLink ? 'Review &amp; Approve' : 'Sign in to review') + '</a></p>' : '<p>Please open the iRequestDologon portal to review and approve it.</p>') +
+      '<p style="color:#888;font-size:12px">Barangay Dologon &ndash; iRequestDologon</p>',
   };
 }
 
-/**
- * @param {object}   opts
- * @param {string}   opts.userId          the resident who made the request
- * @param {string[]} opts.documentTypes   what they asked for
- * @param {string}   [opts.channel]       'kiosk' marks the resident as waiting
- * @param {Function} [opts.sendSms]       (to, message) => Promise
- * @param {Function} [opts.sendEmail]     ({ to, subject, html }) => Promise
- * @returns {Promise<{notified: boolean, reason?: string}>} never rejects
- */
-async function notifyPurokLeader(opts, client = prisma) {
-  const { userId, documentTypes = [], channel, sendSms, sendEmail } = opts;
+// Request controllers launch this after responding. Await all channel results
+// here so a successful request is never confused with a successful delivery.
+async function notifyPurokLeader({ userId, documentTypes = [], channel, sendSms, sendEmail }, client = prisma) {
   try {
-    const profile = await client.verificationProfile.findUnique({
-      where: { userId },
-      select: { purok: true, fullName: true },
-    });
-    if (!profile?.purok) {
-      console.warn('[purok-notify] resident has no purok on file — cannot route approval');
-      return { notified: false, reason: 'no_purok' };
+    const profile = await client.verificationProfile.findUnique({ where: { userId }, select: { purok: true, fullName: true } });
+    if (!profile?.purok) return { notified: false, reason: 'no_purok' };
+    const leaders = await findPurokLeaders(profile.purok, client);
+    if (!leaders.length) return { notified: false, reason: 'no_leader', purok: profile.purok };
+    const portal = portalUrl();
+    const deliveries = [];
+    // All active assigned leaders already share the same approval queue.
+    // Notify each; a duplicate without an inbox must not hide another leader.
+    for (const leader of leaders) {
+      const phone = notificationContact({ contactNumber: leader.contactNumber }).data?.contactNumber;
+      const mailTo = notificationContact({ notifyEmail: leader.notifyEmail }).data?.notifyEmail;
+      const link = portal && buildLink(portal, leader.id, leader.sessionVersion);
+      const msg = buildMessage({ leaderName: leader.fullName || 'Purok Leader', residentName: profile.fullName || 'A resident', purok: profile.purok, documentTypes: documentTypes.filter(Boolean), atCounter: channel === 'kiosk', approveLink: link, portal });
+      if (mailTo && !link) console.warn('[purok-notify] approval link unavailable; check PORTAL_URL, APPROVE_LINK_SECRET and account session version');
+      const delivery = { leaderId: leader.id, reachable: Boolean(phone || mailTo) };
+      await Promise.all([
+        ['inApp', () => client.notification.create({ data: { adminId: leader.id, message: msg.sms } })],
+        ['sms', sendSms && phone ? () => sendSms(phone, msg.sms) : null],
+        ['email', sendEmail && mailTo ? () => sendEmail({ to: mailTo, subject: msg.subject, html: msg.html, text: msg.text }) : null],
+      ].map(async ([name, send]) => {
+        if (!send) { delivery[name] = { status: 'skipped' }; return; }
+        try {
+          const result = await send();
+          if (result?.message?.status === 'failed') throw Object.assign(new Error('SMS rejected'), { code: 'SMS_REJECTED' });
+          delivery[name] = { status: name === 'inApp' ? 'saved' : 'accepted', reference: result?.messageId || result?.message?.reference_id || null };
+        } catch (error) {
+          delivery[name] = { status: 'failed', code: error.code || 'DELIVERY_FAILED' };
+          console.error('[purok-notify] ' + name + ' failed for leader ' + leader.id + ': ' + delivery[name].code);
+        }
+      }));
+      deliveries.push(delivery);
     }
-
-    const leader = await findPurokLeader(profile.purok, client);
-    if (!leader) {
-      // Expected for now: 19 of 21 puroks have no Purok Leader account, so
-      // their residents' requests cannot be approved by anyone. Logged loudly
-      // because it is an onboarding gap, not a code fault.
-      console.warn(
-        `[purok-notify] no Purok Leader account for "${profile.purok}" — ` +
-          'request cannot be approved until one exists'
-      );
-      return { notified: false, reason: 'no_leader', purok: profile.purok };
-    }
-
-    const atCounter = channel === 'kiosk';
-    const msg = buildMessage({
-      leaderName: leader.fullName || 'Purok Leader',
-      residentName: profile.fullName || 'A resident',
-      purok: profile.purok,
-      documentTypes: documentTypes.filter(Boolean),
-      atCounter,
-    });
-
-    // In-app notification — the only channel that cannot bounce.
-    await client.notification
-      .create({ data: { adminId: leader.id, message: msg.sms } })
-      .catch((e) => console.error('[purok-notify] in-app notification failed:', e.message));
-
-    if (sendSms && leader.contactNumber) {
-      Promise.resolve(sendSms(leader.contactNumber, msg.sms))
-        .then(() => console.log(`[purok-notify] SMS sent to ${leader.fullName}`))
-        .catch((e) => console.error('[purok-notify] SMS failed:', e.message));
-    } else if (sendSms) {
-      console.warn(`[purok-notify] ${leader.fullName} has no contact number — SMS skipped`);
-    }
-
-    // `email` is the login identifier and sits on @dologon.gov.ph, a domain
-    // with no MX record — mail to it is accepted by the relay and then bounces.
-    // Only notifyEmail is a real inbox.
-    const mailTo = leader.notifyEmail || null;
-    if (sendEmail && mailTo) {
-      Promise.resolve(sendEmail({ to: mailTo, subject: msg.subject, html: msg.html }))
-        .then(() => console.log(`[purok-notify] email sent to ${mailTo}`))
-        .catch((e) => console.error('[purok-notify] email failed:', e.message));
-    } else if (sendEmail) {
-      console.warn(
-        `[purok-notify] ${leader.fullName} has no reachable email — set notifyEmail ` +
-          `(login address ${leader.email} cannot receive mail)`
-      );
-    }
-
-    const reachable = Boolean(leader.contactNumber) || Boolean(mailTo);
-    if (!reachable) {
-      console.warn(
-        `[purok-notify] ${leader.fullName} has no phone number and no notifyEmail — ` +
-          'they will only see this by logging in'
-      );
-    }
-
-    return { notified: true, reachable, leader: leader.fullName, purok: profile.purok };
-  } catch (err) {
-    // Swallowed on purpose — see the note at the top of this file.
-    console.error('[purok-notify] failed:', err.message);
+    const notified = deliveries.some(d => [d.inApp, d.sms, d.email].some(c => ['saved', 'accepted'].includes(c.status)));
+    return { notified, ...(notified ? {} : { reason: 'delivery_failed' }), reachable: deliveries.some(d => d.reachable), purok: profile.purok, deliveries };
+  } catch (error) {
+    console.error('[purok-notify] failed:', error.code || 'NOTIFICATION_FAILED');
     return { notified: false, reason: 'error' };
   }
 }
 
-module.exports = { findPurokLeader, notifyPurokLeader };
+module.exports = { findPurokLeaders, notifyPurokLeader };

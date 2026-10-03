@@ -289,7 +289,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
         backgroundColor: _green,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text('Step 3: ID Verification',
+        title: const Text('Step 2: ID Verification',
             style: TextStyle(color: Colors.white, fontSize: 16)),
         actions: [
           IconButton(
@@ -305,7 +305,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const StepProgressBar(currentStep: 3),
+              const StepProgressBar(currentStep: 2),
               const SizedBox(height: 28),
 
               // ── ID Type ──────────────────────────────────────────────────

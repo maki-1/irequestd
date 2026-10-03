@@ -1,29 +1,8 @@
-const nodemailer = require('nodemailer');
-
-function createTransporter() {
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // SSL
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-}
+const { createTransporter, sendEmail } = require('../lib/emailDelivery');
 
 // Generic sender, for messages that are not one of the templated emails below.
 // Takes the same { to, subject, html } shape the admin portal's sendEmail uses,
 // so shared helpers can be handed either implementation.
-async function sendEmail({ to, subject, html }) {
-  const transporter = createTransporter();
-  return transporter.sendMail({
-    from: `"iRequest Dologon" <${process.env.EMAIL_USER}>`,
-    to,
-    subject,
-    html,
-  });
-}
 
 async function sendOtpEmail(to, otp, type = 'reset') {
   const transporter = createTransporter();

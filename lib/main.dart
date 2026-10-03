@@ -9,7 +9,6 @@ import 'dashboard_screen.dart';
 import 'settings_screen.dart';
 import 'services/api_service.dart';
 import 'verification/demographic_screen.dart';
-import 'verification/education_screen.dart';
 import 'verification/id_verification_screen.dart';
 import 'verification/verification_waiting_screen.dart';
 
@@ -60,8 +59,7 @@ void main() async {
 Widget _resolveHome(String? status, int step) {
   if (status == 'approved') return const DashboardScreen();
   if (status == 'pending' || status == 'under review' || status == 'under_review') return const VerificationWaitingScreen();
-  if (step >= 3) return const IdVerificationScreen();
-  if (step >= 2) return const EducationScreen();
+  if (step >= 2) return const IdVerificationScreen();
   return const DemographicScreen();
 }
 
