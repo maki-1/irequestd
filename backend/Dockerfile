@@ -31,4 +31,4 @@ COPY . .
 # Koyeb injects PORT (8000 by default); server.js falls back to 5000 locally.
 EXPOSE 8000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && exec node server.js"]
+CMD ["node", "server.js"]
