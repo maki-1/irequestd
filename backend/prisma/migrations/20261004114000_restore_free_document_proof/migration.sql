@@ -1,0 +1,2 @@
+ALTER TABLE "requests"
+ADD COLUMN IF NOT EXISTS "freeDocumentProof" TEXT NOT NULL DEFAULT '';
