@@ -4,8 +4,8 @@
   "description": "iRequest Dologon Node.js + Postgres (Prisma) backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "npx prisma migrate deploy && node server.js",
+    "dev": "npx prisma migrate deploy && nodemon server.js",
     "prisma:generate": "prisma generate",
     "migrate:deploy": "prisma migrate deploy"
   },

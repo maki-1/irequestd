@@ -334,37 +334,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: _showChangePasswordSheet,
           ),
 
-          // ── SUPPORT section ─────────────────────────────────────────
-          _sectionHeader('SUPPORT'),
-          _menuTile(
-            icon: Icons.help_outline,
-            title: 'Help & FAQ',
-            onTap: () {},
-          ),
-          _menuTile(
-            icon: Icons.info_outline,
-            title: 'About App',
-            onTap: () => showAboutDialog(
-              context: context,
-              applicationName: 'iRequestD',
-              applicationVersion: '1.0.0',
-              applicationLegalese: '© 2026 Dologon Barangay',
-            ),
-          ),
-
-          // ── PRIVACY section ─────────────────────────────────────────
-          _sectionHeader('PRIVACY'),
-          _menuTile(
-            icon: Icons.description_outlined,
-            title: 'Terms & Conditions',
-            onTap: () {},
-          ),
-          _menuTile(
-            icon: Icons.privacy_tip_outlined,
-            title: 'Privacy Policy',
-            onTap: () {},
-          ),
-
           // ── Logout button ────────────────────────────────────────────
           const SizedBox(height: 16),
           Padding(

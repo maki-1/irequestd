@@ -567,7 +567,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showDocumentPicker,
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const RequestDocumentScreen()),
+        ),
         backgroundColor: _green,
         icon: const Icon(Icons.add, color: Colors.white),
         label: const Text('Request',
@@ -594,126 +597,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
     });
-  }
-
-  void _showDocumentPicker() {
-    final docs = [
-      {
-        'label': 'Barangay Clearance',
-        'subtitle': 'For general purposes',
-        'icon': Icons.assignment_outlined,
-        'color': const Color(0xFFFFAB76),
-        'type': 'Barangay Clearance',
-      },
-      {
-        'label': 'Certificate of Residency',
-        'subtitle': 'Proof of address',
-        'icon': Icons.home_outlined,
-        'color': const Color(0xFF80D98A),
-        'type': 'Certificate of Residency',
-      },
-      {
-        'label': 'Certificate of Indigency',
-        'subtitle': 'For financial aid',
-        'icon': Icons.badge_outlined,
-        'color': const Color(0xFFBEA9F0),
-        'type': 'Certificate of Indigency',
-      },
-    ];
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.black12,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Choose Document',
-                  style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w800)),
-            ),
-            const SizedBox(height: 6),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Select the document you want to request',
-                  style: TextStyle(fontSize: 13, color: Colors.black45)),
-            ),
-            const SizedBox(height: 20),
-            ...docs.map((d) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.pop(context);
-                      _openRequest(d['type'] as String);
-                    },
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
-                      decoration: BoxDecoration(
-                        color: (d['color'] as Color).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                            color:
-                                (d['color'] as Color).withValues(alpha: 0.4),
-                            width: 1.2),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: d['color'] as Color,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(d['icon'] as IconData,
-                                color: Colors.white, size: 22),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(d['label'] as String,
-                                    style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.black87)),
-                                Text(d['subtitle'] as String,
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.black45)),
-                              ],
-                            ),
-                          ),
-                          const Icon(Icons.arrow_forward_ios_rounded,
-                              size: 14, color: Colors.black26),
-                        ],
-                      ),
-                    ),
-                  ),
-                )),
-          ],
-        ),
-      ),
-    );
   }
 
   void _showPickupDetail(Map<String, dynamic> d) {
@@ -1165,15 +1048,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  void _openRequest(String docType) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RequestDocumentScreen(preselectedType: docType),
       ),
     );
   }
